@@ -28,15 +28,30 @@ uv run ruff format .
 
 ```
 src/makitop/
-├── app.py          point d'entrée (contexte Dear PyGui, viewport, boucle)
+├── app.py          assemblage et cycle de vie de l'application
+├── model/          données et règles du montage
+├── application/    actions utilisateur et coordination
+│   └── commands/   modifications annulables du montage
 ├── ui/             interface Dear PyGui
 │   ├── main_window.py   fenêtre principale et redimensionnement
-│   ├── layout.py        calcul des tailles des zones (testable sans interface)
+│   ├── layout.py        calcul des tailles, indépendant de Dear PyGui
 │   ├── menu_bar.py      barre de menus
-│   └── panels/          zones : médias, preview, propriétés, timeline
-├── model/          modèles métier (Project, Track, Clip, Effect, Keyframe, Media)
-├── engine/         render(t), décodage PyAV, effets OpenCV / Pillow
-├── audio/          lecture sounddevice, mixage, effets audio
-└── export/         export MoviePy
-tests/              tests pytest
+│   ├── panels/          médias, preview, propriétés et package timeline/
+│   ├── dialogs/         boîtes de dialogue
+│   └── assets/          icônes et polices
+├── media/          inspection des fichiers, miniatures et formes d'onde
+├── engine/         décodage, composition vidéo et mixage audio
+│   └── effects/    traitements vidéo et audio
+├── playback/       lecture temps réel et synchronisation audio/vidéo
+├── export/         encodage du résultat final
+└── storage/        sauvegarde et chargement des projets
+tests/
+├── unit/           logique testable isolément
+├── integration/    assemblage de l'interface et des composants
+└── fixtures/       futurs petits médias et projets de test
 ```
+
+L'interface constitue pour l'instant un squelette fonctionnel. Les nouveaux packages
+préparent les fonctionnalités à venir ; leurs modules seront ajoutés progressivement.
+Voir [l'architecture détaillée](docs/architecture.md) et les
+[conventions du futur format de projet](docs/project-format.md).
