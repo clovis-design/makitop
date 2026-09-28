@@ -8,8 +8,10 @@ import dearpygui.dearpygui as dpg
 from makitop import __version__
 from makitop.application.media import MediaImporter
 from makitop.model.project import Project
+from makitop.engine.decoder import MediaDecoder
 from makitop.ui import main_window, menu_bar
 from makitop.ui.dialogs import import_media
+from makitop.ui.panels import preview
 
 TITLE = f"Makitop {__version__}"
 DEFAULT_WIDTH = 1280
@@ -28,6 +30,13 @@ def main() -> None:
         import_media.create(on_files_selected=importer.import_files)
         importer.on_failed(import_media.show_error)
 
+        decoder = MediaDecoder()
+        decoder.open("test.mp4")
+
+        frame = decoder.get_first_frame()
+
+        preview.update_frame(frame)
+        
         dpg.create_viewport(
             title=TITLE,
             width=DEFAULT_WIDTH,

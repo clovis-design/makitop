@@ -13,6 +13,7 @@ ROOT = "main_window"
 
 def build(actions: dict[str, Callable[[], None]] | None = None) -> None:
     """`actions` associe un libellé de menu (voir menu_bar.MENUS) à la fonction à appeler."""
+    preview.create_video_texture()
     with dpg.window(tag=ROOT, no_title_bar=True, no_move=True, no_resize=True):
         menu_bar.create(actions)
         with dpg.group(horizontal=True):
