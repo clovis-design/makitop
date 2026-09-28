@@ -1,5 +1,7 @@
 """Fenêtre principale : menus, navigation, médias, preview, propriétés, timeline."""
 
+from collections.abc import Callable
+
 import dearpygui.dearpygui as dpg
 
 from makitop.ui import menu_bar
@@ -9,9 +11,10 @@ from makitop.ui.panels import media, preview, properties, sidebar, timeline
 ROOT = "main_window"
 
 
-def build() -> None:
+def build(actions: dict[str, Callable[[], None]] | None = None) -> None:
+    """`actions` associe un libellé de menu (voir menu_bar.MENUS) à la fonction à appeler."""
     with dpg.window(tag=ROOT, no_title_bar=True, no_move=True, no_resize=True):
-        menu_bar.create()
+        menu_bar.create(actions)
         with dpg.group(horizontal=True):
             sidebar.create()
             media.create()

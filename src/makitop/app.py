@@ -1,9 +1,15 @@
-"""Point d'entrée : crée le contexte Dear PyGui, construit l'interface et lance la boucle."""
+"""Point d'entrée : crée le contexte Dear PyGui, assemble les composants et lance la boucle."""
+
+import logging
+from concurrent.futures import ThreadPoolExecutor
 
 import dearpygui.dearpygui as dpg
 
 from makitop import __version__
-from makitop.ui import main_window
+from makitop.application.media import MediaImporter
+from makitop.model.project import Project
+from makitop.ui import main_window, menu_bar
+from makitop.ui.dialogs import import_media
 
 TITLE = f"Makitop {__version__}"
 DEFAULT_WIDTH = 1280
@@ -11,9 +17,17 @@ DEFAULT_HEIGHT = 800
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s : %(message)s")
+    project = Project()
+    executor = ThreadPoolExecutor(thread_name_prefix="makitop")
+    importer = MediaImporter(project, executor)
+
     dpg.create_context()
     try:
-        main_window.build()
+        main_window.build(actions={menu_bar.IMPORT_MEDIA: import_media.open_dialog})
+        import_media.create(on_files_selected=importer.import_files)
+        importer.on_failed(import_media.show_error)
+
         dpg.create_viewport(
             title=TITLE,
             width=DEFAULT_WIDTH,
@@ -28,6 +42,8 @@ def main() -> None:
         main_window.resize(*_viewport_client_size())
         dpg.start_dearpygui()
     finally:
+        # On attend les analyses en cours : elles peuvent encore appeler Dear PyGui.
+        executor.shutdown(wait=True, cancel_futures=True)
         dpg.destroy_context()
 
 
