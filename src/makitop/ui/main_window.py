@@ -1,10 +1,10 @@
-"""Fenêtre principale : barre de menus + 4 zones (médias, preview, propriétés, timeline)."""
+"""Fenêtre principale : menus, navigation, médias, preview, propriétés, timeline."""
 
 import dearpygui.dearpygui as dpg
 
 from makitop.ui import menu_bar
 from makitop.ui.layout import compute_layout
-from makitop.ui.panels import media, preview, properties, timeline
+from makitop.ui.panels import media, preview, properties, sidebar, timeline
 
 ROOT = "main_window"
 
@@ -13,15 +13,20 @@ def build() -> None:
     with dpg.window(tag=ROOT, no_title_bar=True, no_move=True, no_resize=True):
         menu_bar.create()
         with dpg.group(horizontal=True):
+            sidebar.create()
             media.create()
-            preview.create()
-            properties.create()
-        timeline.create()
+            with dpg.group():
+                with dpg.group(horizontal=True):
+                    preview.create()
+                    properties.create()
+                timeline.create()
+    sidebar.select(media.DEFAULT_SECTION)
 
 
 def resize(width: int, height: int) -> None:
     layout = compute_layout(width, height)
     for tag, size in (
+        (sidebar.TAG, layout.sidebar),
         (media.TAG, layout.media),
         (preview.TAG, layout.preview),
         (properties.TAG, layout.properties),
