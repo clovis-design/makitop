@@ -96,6 +96,7 @@ def main() -> None:
         project_file.create(session)
 
         importer.on_failed(import_media.show_error)
+        importer.on_imported(media_panel.add_media)
 
         importer.on_imported(media_panel.add_media)
         importer.on_imported(lambda _: session.mark_dirty())
