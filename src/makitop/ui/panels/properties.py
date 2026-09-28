@@ -1,6 +1,8 @@
 """Zone « Propriétés » : réglages du clip, de l'effet ou du keyframe sélectionné."""
 
 import dearpygui.dearpygui as dpg
+import os
+from makitop.ui.assets.style import COLORS, FONT_INTER
 
 from makitop.model.timeline import ImageClip
 

@@ -5,6 +5,8 @@ import threading
 from collections.abc import Callable
 
 import dearpygui.dearpygui as dpg
+import os
+from makitop.ui.assets.style import COLORS, FONT_INTER 
 
 from makitop.media import thumbnails
 from makitop.model.media import Media, MediaKind
