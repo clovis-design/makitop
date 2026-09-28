@@ -10,6 +10,7 @@ from makitop.application.media import MediaImporter
 from makitop.model.project import Project
 from makitop.ui import main_window, menu_bar
 from makitop.ui.dialogs import import_media
+from makitop.ui.panels import media as media_panel
 
 TITLE = f"Makitop {__version__}"
 DEFAULT_WIDTH = 1280
@@ -27,6 +28,7 @@ def main() -> None:
         main_window.build(actions={menu_bar.IMPORT_MEDIA: import_media.open_dialog})
         import_media.create(on_files_selected=importer.import_files)
         importer.on_failed(import_media.show_error)
+        importer.on_imported(media_panel.add_media)
 
         dpg.create_viewport(
             title=TITLE,

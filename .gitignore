@@ -7,6 +7,10 @@ __pycache__/
 build/
 dist/
 
+# Tests
+tests/videos
+tests/sounds
+
 # Outils
 .pytest_cache/
 .ruff_cache/

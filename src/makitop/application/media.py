@@ -55,7 +55,7 @@ class MediaImporter:
             self._notify_failed(path, f"Erreur inattendue : {path.name}")
             return None
 
-        log.info("Média importé : %s (%s)", media.name, media.kind)
+        log.info("Média importé : %s (%s)", media.name, type(media).__name__.lower())
         for listener in self._imported_listeners:
             listener(media)
         return media
