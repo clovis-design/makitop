@@ -20,3 +20,5 @@ class Video(Media):
     width: int
     height: int
     fps: float
+
+# Classes Photos, Audio...
