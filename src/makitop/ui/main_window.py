@@ -47,6 +47,7 @@ def build(actions: dict[str, Callable[[], None]] | None = None) -> None:
     Les raccourcis clavier (ui/shortcuts.py) déclenchent les mêmes actions."""
     actions = actions or {}
     shortcuts.install(actions)
+    preview.create_video_texture()
     with dpg.window(tag=ROOT, no_title_bar=True, no_move=True, no_resize=True):
         menu_bar.create(actions, shortcuts.labels())
         with dpg.group(horizontal=True):

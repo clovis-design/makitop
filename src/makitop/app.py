@@ -9,9 +9,11 @@ from makitop import __version__
 from makitop.application.media import MediaImporter
 from makitop.application.projects import ProjectSession
 from makitop.storage.recent import RecentProjects, config_dir
+from makitop.engine.decoder import MediaDecoder
 from makitop.ui import main_window, menu_bar
 from makitop.ui.dialogs import import_media, project_file
 from makitop.ui.panels import media as media_panel
+from makitop.ui.panels import preview
 
 TITLE = f"Makitop {__version__}"
 DEFAULT_WIDTH = 1280
@@ -42,6 +44,13 @@ def main() -> None:
         project_file.create(session)
 
         importer.on_failed(import_media.show_error)
+
+        decoder = MediaDecoder()
+        decoder.open("test.mp4")
+
+        frame = decoder.get_first_frame()
+
+        preview.update_frame(frame)
         importer.on_imported(media_panel.add_media)
         importer.on_imported(lambda _: session.mark_dirty())
         session.on_project_changed(lambda project: _show_project_media(session, executor))
