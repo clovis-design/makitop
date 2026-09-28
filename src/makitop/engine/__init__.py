@@ -1,1 +1,1 @@
-"""Moteur de rendu : render(t), décodage PyAV et effets OpenCV/Pillow."""
+"""Rendu partagé : décodage, composition vidéo, mixage audio et cache."""
