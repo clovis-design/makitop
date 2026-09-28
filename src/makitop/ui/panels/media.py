@@ -10,7 +10,6 @@ TITLE_TAG = "media_panel_title"
 SECTIONS: list[tuple[str, str]] = [
     ("imports", "Médias importés"),
     ("video_effects", "Effets vidéo"),
-    ("audio_effects", "Effets audio"),
     ("text", "Texte"),
     ("transitions", "Transitions"),
 ]
