@@ -1,13 +1,17 @@
-"""Barre de menus. Les entrées sont inactives pour l'instant : branchées avec les features."""
+"""Barre de menus. Une entrée est active dès qu'une action lui est associée."""
+
+from collections.abc import Callable
 
 import dearpygui.dearpygui as dpg
+
+IMPORT_MEDIA = "Importer un média..."
 
 MENUS: dict[str, list[str]] = {
     "Fichier": [
         "Nouveau projet",
         "Ouvrir...",
         "Enregistrer",
-        "Importer un média...",
+        IMPORT_MEDIA,
         "Exporter...",
     ],
     "Édition": ["Annuler", "Rétablir"],
@@ -16,9 +20,25 @@ MENUS: dict[str, list[str]] = {
 }
 
 
-def create() -> None:
+def item_tag(label: str) -> str:
+    return f"menu_item_{label}"
+
+
+def create(actions: dict[str, Callable[[], None]] | None = None) -> None:
+    actions = actions or {}
     with dpg.menu_bar():
         for menu, items in MENUS.items():
             with dpg.menu(label=menu):
                 for item in items:
-                    dpg.add_menu_item(label=item, enabled=False)
+                    action = actions.get(item)
+                    dpg.add_menu_item(
+                        tag=item_tag(item),
+                        label=item,
+                        enabled=action is not None,
+                        callback=_run(action) if action else None,
+                    )
+
+
+def _run(action: Callable[[], None]) -> Callable:
+    # Dear PyGui passe (sender, app_data, user_data) ; les actions n'en ont pas besoin.
+    return lambda *_: action()
