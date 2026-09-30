@@ -1,14 +1,51 @@
-# Format de projet — conventions à définir
+# Format de projet `.makitop`
 
-La sauvegarde n'est pas encore implémentée. Ce document réserve les décisions à
-formaliser lors de l'ajout de `storage/project_file.py` :
+Un projet est un fichier JSON (UTF-8) portant l'extension `.makitop`, lu et écrit par
+`storage/project_file.py`. L'utilisateur l'enregistre où il veut ; chaque projet
+contient ses propres médias importés.
 
-- version explicite du format ;
-- identifiants stables pour les médias, pistes, clips, effets et keyframes ;
-- convention de temps commune et paramètres vidéo du projet ;
-- références aux fichiers sources et politique de résolution des chemins ;
-- traitement des médias déplacés ou introuvables ;
-- compatibilité et migrations lors des évolutions du format.
+```json
+{
+  "format": "makitop",
+  "version": 1,
+  "name": "Mon film",
+  "media": [
+    {"type": "video", "path": "rushs/plage.mp4", "id": "…", "name": "plage",
+     "extension": ".mp4", "duration": 12.5, "width": 1920, "height": 1080, "fps": 25.0,
+     "video_codec": "h264", "audio_codec": "aac", "sample_rate": 48000, "channels": 2},
+    {"type": "image", "path": "D:\\logos\\logo.png", "id": "…", "width": 512, "height": 512}
+  ]
+}
+```
 
-Le projet sauvegarde les données et paramètres du montage. Les décodeurs ouverts,
-textures Dear PyGui et caches de rendu ne font pas partie du fichier de projet.
+## Décisions
+
+- **Version** : `version` est un entier. Un fichier d'une version plus récente que
+  celle connue est refusé avec un message clair. Les migrations s'ajouteront dans
+  `storage/migrations.py` quand le format évoluera.
+- **Types de médias** : `type` vaut `video`, `audio` ou `image` et correspond aux
+  classes `Video`, `Audio` et `Image` de `model/media.py`. Les autres champs sont
+  ceux du modèle Pydantic.
+- **Identifiants** : chaque média garde son `id` d'un enregistrement à l'autre ; les
+  futurs clips s'y référeront.
+- **Chemins** : un média situé dans le dossier du projet (ou un sous-dossier) est
+  enregistré en chemin relatif, pour qu'on puisse déplacer ou partager le dossier
+  entier. Les autres médias gardent leur chemin absolu.
+- **Médias introuvables** : ils restent dans le projet à l'ouverture (miniature grise).
+  Il est prévu de permettre de les relier à nouveau plus tard.
+- **Écriture sûre** : l'enregistrement écrit d'abord un fichier `.tmp`, puis le renomme ;
+  un plantage pendant l'enregistrement ne corrompt pas le projet existant.
+
+## Hors du fichier de projet
+
+- La liste des 10 projets récents est dans `recent.json`, dans le dossier de
+  configuration de l'utilisateur (`%APPDATA%\Makitop` sous Windows,
+  `~/Library/Application Support/Makitop` sous macOS, `~/.config/Makitop` sous Linux).
+  Le dernier projet ouvert est rouvert au lancement.
+- Les décodeurs ouverts, textures Dear PyGui et caches de rendu ne sont jamais
+  enregistrés.
+
+## À décider plus tard
+
+- convention de temps commune et paramètres vidéo du projet (résolution, FPS) ;
+- pistes, clips, effets et keyframes.

@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 import dearpygui.dearpygui as dpg
 
-from makitop.ui import menu_bar
+from makitop.ui import menu_bar, shortcuts
 from makitop.ui.layout import compute_layout
 from makitop.ui.panels import media, preview, properties, sidebar, timeline
 
@@ -12,9 +12,12 @@ ROOT = "main_window"
 
 
 def build(actions: dict[str, Callable[[], None]] | None = None) -> None:
-    """`actions` associe un libellé de menu (voir menu_bar.MENUS) à la fonction à appeler."""
+    """`actions` associe un libellé de menu (voir menu_bar.MENUS) à la fonction à appeler.
+    Les raccourcis clavier (ui/shortcuts.py) déclenchent les mêmes actions."""
+    actions = actions or {}
+    shortcuts.install(actions)
     with dpg.window(tag=ROOT, no_title_bar=True, no_move=True, no_resize=True):
-        menu_bar.create(actions)
+        menu_bar.create(actions, shortcuts.labels())
         with dpg.group(horizontal=True):
             sidebar.create()
             media.create()
