@@ -6,7 +6,7 @@ import threading
 import dearpygui.dearpygui as dpg
 
 from makitop.media import thumbnails
-from makitop.model.media import Audio, Media, Video
+from makitop.model.media import Media, MediaKind
 
 TAG = "media_panel"
 TITLE_TAG = "media_panel_title"
@@ -150,7 +150,7 @@ def _append(media: Media, cols: int) -> None:
     )
     _draw_overlays(draw_tag, media)
 
-    name = _truncate(media.name, thumbnails.THUMB_W)
+    name = _truncate(media.path.stem, thumbnails.THUMB_W)
     text_w = dpg.get_text_size(name)[0]
     indent = max(0, int((thumbnails.THUMB_W - text_w) / 2))
     dpg.add_text(name, indent=indent, parent=item_tag)
@@ -162,10 +162,10 @@ def _draw_overlays(draw_tag: str, media: Media) -> None:
     tw = thumbnails.THUMB_W
     th = thumbnails.THUMB_H
 
-    ext = media.extension.lstrip(".").upper()
-    if isinstance(media, Video):
+    ext = media.path.suffix.lstrip(".").upper()
+    if media.kind is MediaKind.VIDEO:
         icon = _ICON_VIDEO
-    elif isinstance(media, Audio):
+    elif media.kind is MediaKind.AUDIO:
         icon = _ICON_AUDIO
     else:
         icon = _ICON_IMAGE
@@ -173,7 +173,7 @@ def _draw_overlays(draw_tag: str, media: Media) -> None:
     _draw_badge(draw_tag, ext, _BADGE_PAD, _BADGE_PAD, align="left")
     _draw_badge(draw_tag, icon, tw - _BADGE_PAD, _BADGE_PAD, align="right")
 
-    if isinstance(media, (Video, Audio)) and media.duration is not None:
+    if media.kind in (MediaKind.VIDEO, MediaKind.AUDIO) and media.duration is not None:
         dur = _format_duration(media.duration)
         _draw_badge(draw_tag, dur, tw - _BADGE_PAD, th - _BADGE_PAD - _BADGE_SIZE, align="right")
 
