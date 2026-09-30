@@ -1,11 +1,12 @@
-"""Zone « Preview » : lecteur vidéo (texture alimentée par render(t))."""
+"""Zone « Timeline » : pistes et clips (Dear PyGui Plot)."""
+
 
 import dearpygui.dearpygui as dpg
 
-TAG = "preview_panel"
+TAG = "timeline_panel"
 
 
 def create() -> None:
     with dpg.child_window(tag=TAG, border=False):
-        dpg.add_text("Preview")
+        dpg.add_text("Timeline")
         dpg.add_separator()
