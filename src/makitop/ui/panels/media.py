@@ -14,6 +14,7 @@ TITLE_TAG = "media_panel_title"
 _TEXTURE_REGISTRY = "media_texture_registry"
 _PANEL_HANDLER = "media_panel_handler"
 _ITEM_PADDING = 8
+_MISSING_COLOR = (230, 90, 80)
 
 # (clé, titre affiché). La barre de navigation affiche un bouton par section.
 SECTIONS: list[tuple[str, str]] = [
@@ -132,6 +133,11 @@ def _append(media: Media, cols: int) -> None:
     if indent > 0:
         dpg.add_spacer(width=indent, parent=text_row_tag)
     dpg.add_text(name, parent=text_row_tag)
+    if not media.path.is_file():
+        # Fichier déplacé ou supprimé : la fenêtre « Médias introuvables » permet de le relier.
+        label = "Introuvable"
+        indent = max(0, int((thumbnails.THUMB_W - dpg.get_text_size(label)[0]) / 2))
+        dpg.add_text(label, parent=item_tag, indent=indent, color=_MISSING_COLOR)
 
     _item_count += 1
 

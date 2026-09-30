@@ -31,8 +31,11 @@ contient ses propres médias importés.
 - **Chemins** : un média situé dans le dossier du projet (ou un sous-dossier) est
   enregistré en chemin relatif, pour qu'on puisse déplacer ou partager le dossier
   entier. Les autres médias gardent leur chemin absolu.
-- **Médias introuvables** : ils restent dans le projet à l'ouverture (miniature grise).
-  Il est prévu de permettre de les relier à nouveau plus tard.
+- **Médias introuvables** : à chaque ouverture (y compris la réouverture automatique au
+  lancement), les médias dont le fichier n'est plus à l'emplacement enregistré sont
+  listés dans la fenêtre « Médias introuvables ». Ils restent dans le projet, marqués
+  « Introuvable » dans le panneau médias. Relier un média à son nouveau fichier garde
+  son `id` et retrouve automatiquement les autres médias manquants du même dossier.
 - **Écriture sûre** : l'enregistrement écrit d'abord un fichier `.tmp`, puis le renomme ;
   un plantage pendant l'enregistrement ne corrompt pas le projet existant.
 

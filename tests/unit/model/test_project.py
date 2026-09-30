@@ -25,3 +25,26 @@ def test_identifiants_uniques():
     a = Image(path=Path("a.png"), width=1, height=1)
     b = Image(path=Path("a.png"), width=1, height=1)
     assert a.id != b.id
+
+
+def test_remplacer_un_media_garde_sa_place(tmp_path):
+    a = Image(path=tmp_path / "a.png", width=1, height=1)
+    b = Image(path=tmp_path / "b.png", width=1, height=1)
+    project = Project(media=[a, b])
+    moved = a.model_copy(update={"path": tmp_path / "ailleurs" / "a.png"})
+    project.replace_media(moved)
+    assert project.media == [moved, b]
+    with pytest.raises(KeyError):
+        project.replace_media(Image(path=tmp_path / "c.png", width=1, height=1))
+
+
+def test_medias_introuvables(tmp_path):
+    present = tmp_path / "la.png"
+    present.write_bytes(b"x")
+    project = Project(
+        media=[
+            Image(path=present, width=1, height=1),
+            Image(path=tmp_path / "parti.png", width=1, height=1),
+        ]
+    )
+    assert [m.name for m in project.missing_media()] == ["parti"]
