@@ -11,7 +11,7 @@ from makitop.ui.panels import media, preview, properties, sidebar, timeline
 ROOT = "main_window"
 
 
-def build(actions: dict[str, Callable[[], None]] | None = None) -> None:
+def build(actions: dict[str, Callable[[], None]] | None = Noneplayback_controller) -> None:
     """`actions` associe un libellé de menu (voir menu_bar.MENUS) à la fonction à appeler."""
     preview.create_video_texture()
     with dpg.window(tag=ROOT, no_title_bar=True, no_move=True, no_resize=True):
@@ -21,7 +21,11 @@ def build(actions: dict[str, Callable[[], None]] | None = None) -> None:
             media.create()
             with dpg.group():
                 with dpg.group(horizontal=True):
-                    preview.create()
+                    preview.create(
+                        on_play=playback_controller.play,
+                        on_pause=playback_controller.pause,
+                        on_stop=playback_controller.stop,
+                    )
                     properties.create()
                 timeline.create()
     sidebar.select(media.DEFAULT_SECTION)

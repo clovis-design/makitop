@@ -1,13 +1,30 @@
-from makitop.engine.decoder import MediaDecoder
+import time
 
-from makitop.engine.render import Renderer
+from makitop.playback.clock import PlaybackClock
 
 
-decoder = MediaDecoder()
-decoder.open("test.mp4")
+clock = PlaybackClock()
 
-renderer = Renderer(decoder)
+print("Début :", clock.current_time())
 
-frame = renderer.render(0)
+clock.play()
 
-print(frame.shape)
+time.sleep(2)
+
+print("Après 2 secondes :", clock.current_time())
+
+clock.pause()
+
+print("Pause :", clock.current_time())
+
+time.sleep(2)
+
+print("Toujours en pause :", clock.current_time())
+
+clock.seek(10)
+
+print("Après seek :", clock.current_time())
+
+clock.stop()
+
+print("Après stop :", clock.current_time())

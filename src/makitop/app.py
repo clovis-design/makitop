@@ -8,7 +8,10 @@ import dearpygui.dearpygui as dpg
 from makitop import __version__
 from makitop.application.media import MediaImporter
 from makitop.model.project import Project
+from makitop.application.playback import PlaybackController
 from makitop.engine.decoder import MediaDecoder
+from makitop.engine.render import Renderer
+from makitop.playback.player import Player
 from makitop.ui import main_window, menu_bar
 from makitop.ui.dialogs import import_media
 from makitop.ui.panels import preview
@@ -32,6 +35,11 @@ def main() -> None:
 
         decoder = MediaDecoder()
         decoder.open("test.mp4")
+        renderer = Renderer(decoder)
+        player = Player(renderer)
+        playback_controller = PlaybackController(player)
+
+        main_window.build(playback_controller)
 
         frame = decoder.get_first_frame()
 
@@ -49,7 +57,19 @@ def main() -> None:
         dpg.show_viewport()
         dpg.set_primary_window(main_window.ROOT, True)
         main_window.resize(*_viewport_client_size())
-        dpg.start_dearpygui()
+        while dpg.is_dearpygui_running():
+
+            current_time = playback_controller.current_time()
+
+            preview.update_time(current_time)
+
+            frame = playback_controller.current_frame()
+
+            if frame is not None:
+                preview.update_frame(frame)
+
+            dpg.render_dearpygui_frame()
+            
     finally:
         # On attend les analyses en cours : elles peuvent encore appeler Dear PyGui.
         executor.shutdown(wait=True, cancel_futures=True)
