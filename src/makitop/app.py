@@ -41,6 +41,9 @@ def main() -> None:
 
         main_window.build(playback_controller)
 
+        preview.initFinalTime(decoder.get_duration())
+
+
         frame = decoder.get_first_frame()
 
         preview.update_frame(frame)
@@ -69,7 +72,7 @@ def main() -> None:
                 preview.update_frame(frame)
 
             dpg.render_dearpygui_frame()
-            
+
     finally:
         # On attend les analyses en cours : elles peuvent encore appeler Dear PyGui.
         executor.shutdown(wait=True, cancel_futures=True)
