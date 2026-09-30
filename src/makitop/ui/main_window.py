@@ -15,10 +15,11 @@ from makitop.ui.assets.style import COLORS, FONT_INTER
 
 ROOT = "main_window"
 
-def apply_main_background() -> None:
-    """Applique une couleur de fond uniquement à la fenêtre racine."""
+def apply_global_style() -> None:
+    """Applique les couleurs et la police globales à toute l'interface."""
+    
+    # 1. Gestion des couleurs (Thème)
     with dpg.theme() as main_theme:
-        # On cible EXPLICITEMENT les fenêtres classiques, pas les child_windows
         with dpg.theme_component(dpg.mvWindowAppItem):
             dpg.add_theme_color(dpg.mvThemeCol_WindowBg, COLORS["bg_panel"])
             dpg.add_theme_style(dpg.mvStyleVar_WindowBorderSize, 0)
@@ -73,8 +74,7 @@ def build(
                     )
                     properties.create()
                 timeline.create()
-
-    apply_main_background()
+    apply_global_style()
     sidebar.select(media.DEFAULT_SECTION)
 
 
