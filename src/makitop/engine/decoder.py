@@ -42,3 +42,9 @@ class MediaDecoder:
 
         # Si aucune frame n'est trouvée
         return None
+
+    def get_duration(self) -> float:
+        if self.container.duration is None:
+            return 0.0
+
+        return self.container.duration / 1_000_000

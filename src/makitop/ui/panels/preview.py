@@ -8,9 +8,11 @@ TAG = "preview_panel"
 VIDEO_TEXTURE_TAG = "video_texture"
 VIDEO_IMAGE_TAG = "video_image"
 TIME_TEXT_TAG = "preview_time"
+FINAL_TIME_TEXT_TAG = "final_time"
 
 PREVIEW_WIDTH = 640
 PREVIEW_HEIGHT = 360
+
 
 
 def create_video_texture() -> None:
@@ -29,6 +31,7 @@ def create_video_texture() -> None:
             default_value=empty_texture,
             tag=VIDEO_TEXTURE_TAG,
         )
+
 
 
 def update_frame(frame: np.ndarray) -> None:
@@ -68,15 +71,28 @@ def update_frame(frame: np.ndarray) -> None:
         VIDEO_TEXTURE_TAG,
         texture_data,
     )
-    
-def update_time(seconds: float) -> None:
+
+def format_time(seconds: float) -> str:
     minutes = int(seconds // 60)
     remaining_seconds = int(seconds % 60)
 
-    text = f"{minutes:02d}:{remaining_seconds:02d}"
+    return f"{minutes:02d}:{remaining_seconds:02d}"
+    
+def update_time(seconds: float) -> None:
+
+    text = format_time(seconds)
 
     dpg.set_value(
         TIME_TEXT_TAG,
+        text,
+    )
+
+def initFinalTime(seconds: float) -> None:
+
+    text = format_time(seconds)
+
+    dpg.set_value(
+        FINAL_TIME_TEXT_TAG,
         text,
     )
 
@@ -117,7 +133,11 @@ def create(
                 callback=on_stop,
             )
 
-        dpg.add_text(
-            "00:00",
-            tag=TIME_TEXT_TAG,
-        )
+        with dpg.group(horizontal=True):
+            dpg.add_text("00:00", tag=TIME_TEXT_TAG)
+
+            dpg.add_separator()
+
+            dpg.add_text("00:00", tag=FINAL_TIME_TEXT_TAG)
+
+        
