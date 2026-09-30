@@ -89,6 +89,19 @@ def add_media(media: Media) -> None:
             _append(media, cols)
 
 
+def clear() -> None:
+    """Retire tous les médias affichés (changement de projet)."""
+    global _current_cols, _current_row_tag, _item_count
+    with _lock:
+        _medias.clear()
+        _current_cols = 0
+        _current_row_tag = None
+        _item_count = 0
+        dpg.delete_item(section_tag("imports"), children_only=True)
+        # Les images qui utilisaient les textures viennent d'être supprimées.
+        dpg.delete_item(_TEXTURE_REGISTRY, children_only=True)
+
+
 def _on_panel_resize() -> None:
     with _lock:
         cols = _compute_cols()

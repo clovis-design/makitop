@@ -21,8 +21,9 @@ FailedListener = Callable[[Path, str], None]
 
 
 class MediaImporter:
-    def __init__(self, project: Project, executor: Executor) -> None:
-        self._project = project
+    def __init__(self, current_project: Callable[[], Project], executor: Executor) -> None:
+        """`current_project` renvoie le projet ouvert : il change quand on ouvre un autre projet."""
+        self._current_project = current_project
         self._executor = executor
         self._lock = threading.Lock()
         self._imported_listeners: list[ImportedListener] = []
@@ -38,15 +39,16 @@ class MediaImporter:
 
     def import_files(self, paths: Iterable[Path]) -> list[Future[Media | None]]:
         """Lance l'import de chaque fichier sans bloquer l'appelant."""
-        return [self._executor.submit(self._import_one, Path(p)) for p in paths]
+        project = self._current_project()
+        return [self._executor.submit(self._import_one, project, Path(p)) for p in paths]
 
-    def _import_one(self, path: Path) -> Media | None:
+    def _import_one(self, project: Project, path: Path) -> Media | None:
         try:
-            if self._project.find_media(path) is not None:
+            if project.find_media(path) is not None:
                 raise MediaProbeError(f"Déjà importé : {path.name}")
             media = probe(path)
             with self._lock:
-                self._project.add_media(media)
+                project.add_media(media)
         except (MediaProbeError, ValueError) as error:
             self._notify_failed(path, str(error))
             return None
@@ -56,6 +58,9 @@ class MediaImporter:
             return None
 
         log.info("Média importé : %s (%s)", media.name, type(media).__name__.lower())
+        if project is not self._current_project():
+            # Un autre projet a été ouvert pendant l'analyse : rien à afficher.
+            return media
         for listener in self._imported_listeners:
             listener(media)
         return media
