@@ -8,8 +8,8 @@ from PIL import Image as PilImage
 
 from makitop.model.media import Image, Media, Video
 
-THUMB_W = 120
-THUMB_H = 68
+THUMB_W = 160
+THUMB_H = 90
 
 _PLACEHOLDER_COLOR = (0.15, 0.15, 0.18, 1.0)  # gris foncé RGBA
 
