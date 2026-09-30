@@ -2,8 +2,11 @@
 
 ## État actuel
 
-L'application construit une fenêtre Dear PyGui avec quatre panneaux et des menus
-inactifs. `app.py` conserve le démarrage et la destruction du contexte graphique.
+L'application construit une fenêtre Dear PyGui avec quatre panneaux. Seul le menu
+« Fichier > Importer un média... » est actif : `ui/dialogs/import_media.py` choisit
+les fichiers, `application/media.py` les analyse en arrière-plan avec `media/probe.py`
+et les ajoute au `Project` (`model/project.py`, `model/media.py`). L'affichage des
+médias importés doit s'abonner à `MediaImporter.on_imported`. `app.py` conserve le démarrage et la destruction du contexte graphique.
 Les packages métier et techniques sont des emplacements pour les fonctionnalités
 à venir, pas des implémentations de celles-ci.
 
