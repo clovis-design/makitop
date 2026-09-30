@@ -42,7 +42,7 @@ def apply_global_style() -> None:
         print(f"Attention : Fichier de police introuvable -> {FONT_INTER}")
 
 
-def build(actions: dict[str, Callable[[], None]] | None = None) -> None:
+def build(actions: dict[str, Callable[[], None]] | None = Noneplayback_controller) -> None:
     """`actions` associe un libellé de menu (voir menu_bar.MENUS) à la fonction à appeler.
     Les raccourcis clavier (ui/shortcuts.py) déclenchent les mêmes actions."""
     actions = actions or {}
@@ -55,7 +55,11 @@ def build(actions: dict[str, Callable[[], None]] | None = None) -> None:
             media.create()
             with dpg.group():
                 with dpg.group(horizontal=True):
-                    preview.create()
+                    preview.create(
+                        on_play=playback_controller.play,
+                        on_pause=playback_controller.pause,
+                        on_stop=playback_controller.stop,
+                    )
                     properties.create()
                 timeline.create()
     apply_global_style()

@@ -9,7 +9,10 @@ from makitop import __version__
 from makitop.application.media import MediaImporter
 from makitop.application.projects import ProjectSession
 from makitop.storage.recent import RecentProjects, config_dir
+from makitop.application.playback import PlaybackController
 from makitop.engine.decoder import MediaDecoder
+from makitop.engine.render import Renderer
+from makitop.playback.player import Player
 from makitop.ui import main_window, menu_bar
 from makitop.ui.dialogs import import_media, project_file
 from makitop.ui.panels import media as media_panel
@@ -47,6 +50,11 @@ def main() -> None:
 
         decoder = MediaDecoder()
         decoder.open("test.mp4")
+        renderer = Renderer(decoder)
+        player = Player(renderer)
+        playback_controller = PlaybackController(player)
+
+        main_window.build(playback_controller)
 
         frame = decoder.get_first_frame()
 
@@ -72,13 +80,22 @@ def main() -> None:
         dpg.show_viewport()
         dpg.set_primary_window(main_window.ROOT, True)
         main_window.resize(*_viewport_client_size())
+        while dpg.is_dearpygui_running():
 
+            current_time = playback_controller.current_time()
+
+            preview.update_time(current_time)
+
+            frame = playback_controller.current_frame()
+
+            if frame is not None:
+                preview.update_frame(frame)
+
+    
         _refresh_title_and_recent(session)
-        # Le dernier projet est rouvert après quelques images : avant la première image,
-        # les polices ne sont pas prêtes et le panneau médias ne peut pas mesurer les noms.
-        dpg.set_frame_callback(3, lambda: _reopen_last_project(session))
 
-        dpg.start_dearpygui()
+        dpg.render_dearpygui_frame()
+            
     finally:
         # On attend les analyses en cours : elles peuvent encore appeler Dear PyGui.
         executor.shutdown(wait=True, cancel_futures=True)
