@@ -12,12 +12,10 @@ FINAL_TIME_TEXT_TAG = "final_time"
 PREVIEW_WIDTH = 640
 PREVIEW_HEIGHT = 360
 
-
 def clear() -> None:
     update_frame(np.zeros((PREVIEW_HEIGHT, PREVIEW_WIDTH, 3), dtype=np.uint8))
     update_time(0)
     initFinalTime(0)
-
 
 def create_video_texture() -> None:
     # Dear PyGui attend 4 valeurs par pixel :
