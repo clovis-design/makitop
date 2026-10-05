@@ -45,15 +45,25 @@ _current_row_tag: str | None = None
 _item_count: int = 0
 _lock = threading.Lock()
 _on_selected: Callable[[Media], None] | None = None
+_on_add_media: Callable[[], None] | None = None
+
+_ADD_BUTTON_TAG = "media_add_button"
+_TITLE_ROW_TAG = "media_title_row"
+_TITLE_SPACER_TAG = "media_title_spacer"
+_GRID_TAG = "media_imports_grid"
 
 
 def section_tag(key: str) -> str:
     return f"media_section_{key}"
 
 
-def create(on_selected: Callable[[Media], None] | None = None) -> None:
-    global _medias, _current_cols, _current_row_tag, _item_count, _on_selected
+def create(
+    on_selected: Callable[[Media], None] | None = None,
+    on_add_media: Callable[[], None] | None = None,
+) -> None:
+    global _medias, _current_cols, _current_row_tag, _item_count, _on_selected, _on_add_media
     _on_selected = on_selected
+    _on_add_media = on_add_media
     _medias = []
     _current_cols = 0
     _current_row_tag = None
@@ -64,10 +74,24 @@ def create(on_selected: Callable[[Media], None] | None = None) -> None:
     with dpg.item_handler_registry(tag=_CLICK_HANDLER):
         dpg.add_item_clicked_handler(button=dpg.mvMouseButton_Left, callback=_on_media_clicked)
     with dpg.child_window(tag=TAG, border=True):
-        dpg.add_text("", tag=TITLE_TAG)
+        with dpg.group(horizontal=True, tag=_TITLE_ROW_TAG):
+            dpg.add_text("", tag=TITLE_TAG)
+            dpg.add_spacer(width=0, tag=_TITLE_SPACER_TAG)
+            dpg.add_button(
+                tag=_ADD_BUTTON_TAG,
+                label="+",
+                width=22,
+                height=18,
+                show=False,
+                callback=lambda: _on_add_media() if _on_add_media else None,
+            )
+            with dpg.tooltip(_ADD_BUTTON_TAG):
+                dpg.add_text("Ajouter des médias")
         dpg.add_separator()
         for key, _ in SECTIONS:
-            dpg.add_group(tag=section_tag(key), show=False)
+            with dpg.group(tag=section_tag(key), show=False):
+                if key == "imports":
+                    dpg.add_group(tag=_GRID_TAG)
     dpg.bind_item_handler_registry(TAG, _PANEL_HANDLER)
 
 
@@ -82,6 +106,8 @@ def show_section(key: str) -> None:
         dpg.configure_item(section_tag(other), show=visible)
         if visible:
             dpg.set_value(TITLE_TAG, title)
+    dpg.configure_item(_ADD_BUTTON_TAG, show=(key == "imports"))
+    _update_title_spacer()
 
 
 def add_media(media: Media) -> None:
@@ -109,16 +135,26 @@ def clear() -> None:
         _current_cols = 0
         _current_row_tag = None
         _item_count = 0
-        dpg.delete_item(section_tag("imports"), children_only=True)
+        dpg.delete_item(_GRID_TAG, children_only=True)
         # Les images qui utilisaient les textures viennent d'être supprimées.
         dpg.delete_item(_TEXTURE_REGISTRY, children_only=True)
 
 
 def _on_panel_resize() -> None:
     with _lock:
+        _update_title_spacer()
         cols = _compute_cols()
         if cols != _current_cols and _medias:
             _rebuild(cols)
+
+
+def _update_title_spacer() -> None:
+    panel_size = dpg.get_item_rect_size(TAG)
+    title_size = dpg.get_text_size(dpg.get_value(TITLE_TAG) or "")
+    if panel_size is None or title_size is None:
+        return
+    spacer_w = max(0, int(panel_size[0]) - int(title_size[0]) - 22 - 30)
+    dpg.configure_item(_TITLE_SPACER_TAG, width=spacer_w)
 
 
 def _compute_cols() -> int:
@@ -133,7 +169,7 @@ def _rebuild(cols: int) -> None:
     _current_cols = cols
     _item_count = 0
     _current_row_tag = None
-    dpg.delete_item(section_tag("imports"), children_only=True)
+    dpg.delete_item(_GRID_TAG, children_only=True)
     for m in _medias:
         _append(m, cols)
 
@@ -142,7 +178,7 @@ def _append(media: Media, cols: int) -> None:
     global _item_count, _current_row_tag
     if _item_count % cols == 0:
         _current_row_tag = f"media_row_{_item_count // cols}"
-        dpg.add_group(horizontal=True, tag=_current_row_tag, parent=section_tag("imports"))
+        dpg.add_group(horizontal=True, tag=_current_row_tag, parent=_GRID_TAG)
 
     item_tag = f"media_item_{media.id}"
     dpg.add_group(tag=item_tag, parent=_current_row_tag)
