@@ -7,8 +7,11 @@ import marque le projet comme modifié) : ils doivent rester thread-safe.
 import logging
 import threading
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
+from makitop.media.probe import MediaProbeError, probe
+from makitop.model.media import Media, MediaKind
 from makitop.model.project import Project
 from makitop.storage import project_file
 from makitop.storage.recent import RecentProjects
@@ -17,6 +20,13 @@ log = logging.getLogger(__name__)
 
 ProjectListener = Callable[[Project], None]
 StateListener = Callable[[], None]
+MediaListener = Callable[[list[Media]], None]
+
+_KIND_NAMES = {
+    MediaKind.VIDEO: "une vidéo",
+    MediaKind.AUDIO: "un fichier audio",
+    MediaKind.IMAGE: "une image",
+}
 
 
 class ProjectSession:
@@ -28,6 +38,7 @@ class ProjectSession:
         self._lock = threading.Lock()
         self._project_listeners: list[ProjectListener] = []
         self._state_listeners: list[StateListener] = []
+        self._media_listeners: list[MediaListener] = []
 
     @property
     def project(self) -> Project:
@@ -54,6 +65,46 @@ class ProjectSession:
     def on_state_changed(self, listener: StateListener) -> None:
         """Appelé quand le nom, le fichier ou l'état « modifié » du projet change."""
         self._state_listeners.append(listener)
+
+    def on_media_relinked(self, listener: MediaListener) -> None:
+        """Appelé avec les médias qui viennent d'être reliés à un nouveau fichier."""
+        self._media_listeners.append(listener)
+
+    def relink(self, media: Media, new_path: Path) -> list[Media]:
+        """Relie un média introuvable à `new_path`, puis cherche les autres médias
+        introuvables dans le même dossier (même nom de fichier) et les relie aussi.
+
+        Lève MediaProbeError si le fichier est illisible ou d'un autre type que le média.
+        Renvoie les médias reliés, le premier étant celui demandé.
+        """
+        relinked = [self._relinked_copy(media, Path(new_path))]
+        for other in self._project.missing_media():
+            if other.id == media.id:
+                continue
+            candidate = Path(new_path).parent / other.path.name
+            if candidate.is_file():
+                try:
+                    relinked.append(self._relinked_copy(other, candidate))
+                except MediaProbeError:
+                    log.info("Fichier trouvé mais inutilisable pour %s : %s", other.name, candidate)
+
+        with self._lock:
+            for new in relinked:
+                self._project.replace_media(new)
+        log.info("Médias reliés : %s", ", ".join(m.name for m in relinked))
+        for listener in self._media_listeners:
+            listener(relinked)
+        self.mark_dirty()
+        return relinked
+
+    @staticmethod
+    def _relinked_copy(media: Media, path: Path) -> Media:
+        new = probe(path)
+        if new.kind is not media.kind:
+            expected = _KIND_NAMES[media.kind]
+            raise MediaProbeError(f"{path.name} n'est pas {expected}.")
+        # Même identifiant : les clips qui utilisent ce média continuent de le trouver.
+        return replace(new, id=media.id)
 
     def new(self) -> None:
         self._replace(Project(), path=None)

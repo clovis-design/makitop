@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from makitop.model.media import Audio, Image, Video
+from makitop.model.media import Media, MediaKind
 from makitop.model.project import Project
 from makitop.storage import project_file
 from makitop.storage.project_file import ProjectFileError
@@ -13,9 +13,25 @@ def _project(tmp_path: Path) -> Project:
     return Project(
         name="Vacances",
         media=[
-            Video(path=tmp_path / "rushs" / "plage.mp4", width=1920, height=1080, fps=25.0),
-            Audio(path=tmp_path / "musique été.mp3", audio_codec="mp3", duration=12.5),
-            Image(path=Path("D:/ailleurs/logo.png").absolute(), width=32, height=16),
+            Media(
+                path=tmp_path / "rushs" / "plage.mp4",
+                kind=MediaKind.VIDEO,
+                width=1920,
+                height=1080,
+                fps=25.0,
+            ),
+            Media(
+                path=tmp_path / "musique été.mp3",
+                kind=MediaKind.AUDIO,
+                audio_codec="mp3",
+                duration=12.5,
+            ),
+            Media(
+                path=Path("D:/ailleurs/logo.png").absolute(),
+                kind=MediaKind.IMAGE,
+                width=32,
+                height=16,
+            ),
         ],
     )
 
@@ -27,7 +43,7 @@ def test_aller_retour_conserve_tout(tmp_path):
     loaded = project_file.load(path)
 
     assert loaded.name == "Vacances"
-    assert [type(m) for m in loaded.media] == [Video, Audio, Image]
+    assert [m.kind for m in loaded.media] == [MediaKind.VIDEO, MediaKind.AUDIO, MediaKind.IMAGE]
     assert loaded.media == project.media  # mêmes champs, mêmes identifiants
 
 

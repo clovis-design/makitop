@@ -11,6 +11,7 @@ RECENT_PROJECTS = "Projets récents"
 SAVE_PROJECT = "Enregistrer"
 SAVE_PROJECT_AS = "Enregistrer sous..."
 IMPORT_MEDIA = "Importer un média..."
+QUIT = "Quitter"
 
 RECENT_MENU_TAG = "menu_recent_projects"
 
@@ -23,6 +24,7 @@ MENUS: dict[str, list[str]] = {
         SAVE_PROJECT_AS,
         IMPORT_MEDIA,
         "Exporter...",
+        QUIT,
     ],
     "Édition": ["Annuler", "Rétablir"],
     "Affichage": ["Réinitialiser la disposition"],
