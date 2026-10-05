@@ -46,11 +46,39 @@ _item_count: int = 0
 _lock = threading.Lock()
 _on_selected: Callable[[Media], None] | None = None
 _on_add_media: Callable[[], None] | None = None
+_active_filter: MediaKind | None = None
+_filter_active_theme: int = 0
+_search_query: str = ""
+_sort_key: str = "import"
 
 _ADD_BUTTON_TAG = "media_add_button"
 _TITLE_ROW_TAG = "media_title_row"
 _TITLE_SPACER_TAG = "media_title_spacer"
 _GRID_TAG = "media_imports_grid"
+_FILTER_ROW_TAG = "media_filter_row"
+_SEARCH_TAG = "media_search_input"
+_SORT_COMBO_TAG = "media_sort_combo"
+
+_FILTER_OPTIONS: list[tuple[MediaKind | None, str]] = [
+    (None, "Tous"),
+    (MediaKind.VIDEO, "Vidéo"),
+    (MediaKind.AUDIO, "Audio"),
+    (MediaKind.IMAGE, "Image"),
+]
+
+_SORT_OPTIONS: list[tuple[str, str]] = [
+    ("import", "Ordre d'import"),
+    ("name_asc", "Nom A→Z"),
+    ("name_desc", "Nom Z→A"),
+    ("type", "Type"),
+]
+_SORT_LABEL_TO_KEY: dict[str, str] = {label: key for key, label in _SORT_OPTIONS}
+
+_SORT_COMBO_W = 130  # largeur fixe de la liste déroulante de tri
+
+
+def _filter_btn_tag(kind: MediaKind | None) -> str:
+    return f"media_filter_btn_{kind.value if kind else 'all'}"
 
 
 def section_tag(key: str) -> str:
@@ -62,12 +90,21 @@ def create(
     on_add_media: Callable[[], None] | None = None,
 ) -> None:
     global _medias, _current_cols, _current_row_tag, _item_count, _on_selected, _on_add_media
+    global _active_filter, _filter_active_theme, _search_query, _sort_key
     _on_selected = on_selected
     _on_add_media = on_add_media
     _medias = []
     _current_cols = 0
     _current_row_tag = None
     _item_count = 0
+    _active_filter = None
+    _search_query = ""
+    _sort_key = "import"
+    with dpg.theme() as _filter_active_theme:
+        with dpg.theme_component(dpg.mvButton):
+            dpg.add_theme_color(dpg.mvThemeCol_Button, (60, 120, 175, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (80, 140, 195, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (40, 100, 155, 255))
     dpg.add_texture_registry(tag=_TEXTURE_REGISTRY)
     with dpg.item_handler_registry(tag=_PANEL_HANDLER):
         dpg.add_item_resize_handler(callback=_on_panel_resize)
@@ -91,6 +128,46 @@ def create(
         for key, _ in SECTIONS:
             with dpg.group(tag=section_tag(key), show=False):
                 if key == "imports":
+                    with dpg.table(
+                        tag=_FILTER_ROW_TAG,
+                        header_row=False,
+                        borders_innerH=False,
+                        borders_outerH=False,
+                        borders_innerV=False,
+                        borders_outerV=False,
+                        width=-1,
+                    ):
+                        for _ in _FILTER_OPTIONS:
+                            dpg.add_table_column(width_stretch=True)
+                        dpg.add_table_column(
+                            width_fixed=True,
+                            init_width_or_weight=_SORT_COMBO_W,
+                        )
+                        with dpg.table_row():
+                            for kind, label in _FILTER_OPTIONS:
+                                with dpg.table_cell():
+                                    dpg.add_button(
+                                        tag=_filter_btn_tag(kind),
+                                        label=label,
+                                        width=-1,
+                                        user_data=kind,
+                                        callback=lambda s, a, u: _set_filter(u),
+                                    )
+                            with dpg.table_cell():
+                                dpg.add_combo(
+                                    tag=_SORT_COMBO_TAG,
+                                    items=[label for _, label in _SORT_OPTIONS],
+                                    default_value=_SORT_OPTIONS[0][1],
+                                    width=-1,
+                                    callback=_on_sort_change,
+                                )
+                    dpg.bind_item_theme(_filter_btn_tag(None), _filter_active_theme)
+                    dpg.add_input_text(
+                        tag=_SEARCH_TAG,
+                        hint="Rechercher...",
+                        width=-1,
+                        callback=_on_search_change,
+                    )
                     dpg.add_group(tag=_GRID_TAG)
     dpg.bind_item_handler_registry(TAG, _PANEL_HANDLER)
 
@@ -121,20 +198,31 @@ def add_media(media: Media) -> None:
             parent=_TEXTURE_REGISTRY,
         )
         cols = _compute_cols()
-        if cols != _current_cols:
+        if cols != _current_cols or _sort_key != "import":
             _rebuild(cols)
-        else:
+        elif _active_filter is None or media.kind is _active_filter:
             _append(media, cols)
 
 
 def clear() -> None:
     """Retire tous les médias affichés (changement de projet)."""
-    global _current_cols, _current_row_tag, _item_count
+    global _current_cols, _current_row_tag, _item_count, _active_filter, _search_query, _sort_key
     with _lock:
         _medias.clear()
         _current_cols = 0
         _current_row_tag = None
         _item_count = 0
+        if _active_filter is not None:
+            _active_filter = None
+            _update_filter_themes()
+        if _search_query:
+            _search_query = ""
+            if dpg.does_item_exist(_SEARCH_TAG):
+                dpg.set_value(_SEARCH_TAG, "")
+        if _sort_key != "import":
+            _sort_key = "import"
+            if dpg.does_item_exist(_SORT_COMBO_TAG):
+                dpg.set_value(_SORT_COMBO_TAG, _SORT_OPTIONS[0][1])
         dpg.delete_item(_GRID_TAG, children_only=True)
         # Les images qui utilisaient les textures viennent d'être supprimées.
         dpg.delete_item(_TEXTURE_REGISTRY, children_only=True)
@@ -164,13 +252,68 @@ def _compute_cols() -> int:
     return max(1, int((w - _ITEM_PADDING) / (thumbnails.THUMB_W + _ITEM_PADDING)))
 
 
+def _get_displayed_medias() -> list[Media]:
+    result: list[Media] = _medias
+    if _active_filter is not None:
+        result = [m for m in result if m.kind is _active_filter]
+    if _search_query:
+        q = _search_query.lower()
+        result = [m for m in result if q in m.path.stem.lower()]
+    return _apply_sort(result)
+
+
+def _apply_sort(medias: list[Media]) -> list[Media]:
+    if _sort_key == "name_asc":
+        return sorted(medias, key=lambda m: m.path.stem.lower())
+    if _sort_key == "name_desc":
+        return sorted(medias, key=lambda m: m.path.stem.lower(), reverse=True)
+    if _sort_key == "type":
+        return sorted(medias, key=lambda m: m.kind.value)
+    return list(medias)
+
+
+def _on_sort_change(sender, app_data) -> None:
+    global _sort_key
+    with _lock:
+        _sort_key = _SORT_LABEL_TO_KEY.get(app_data, "import")
+        cols = _compute_cols()
+        _rebuild(cols)
+
+
+def _on_search_change(sender, app_data) -> None:
+    global _search_query
+    with _lock:
+        _search_query = app_data or ""
+        cols = _compute_cols()
+        _rebuild(cols)
+
+
+def _set_filter(kind: MediaKind | None) -> None:
+    global _active_filter
+    with _lock:
+        _active_filter = kind
+        _update_filter_themes()
+        cols = _compute_cols()
+        _rebuild(cols)
+
+
+def _update_filter_themes() -> None:
+    for kind, _ in _FILTER_OPTIONS:
+        tag = _filter_btn_tag(kind)
+        if dpg.does_item_exist(tag):
+            if kind is _active_filter:
+                dpg.bind_item_theme(tag, _filter_active_theme)
+            else:
+                dpg.bind_item_theme(tag, 0)
+
+
 def _rebuild(cols: int) -> None:
     global _current_cols, _current_row_tag, _item_count
     _current_cols = cols
     _item_count = 0
     _current_row_tag = None
     dpg.delete_item(_GRID_TAG, children_only=True)
-    for m in _medias:
+    for m in _get_displayed_medias():
         _append(m, cols)
 
 
