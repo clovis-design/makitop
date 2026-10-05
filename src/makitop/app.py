@@ -17,7 +17,7 @@ from makitop.ui.panels import media as media_panel
 from makitop.ui.panels import preview
 
 TITLE = f"Makitop {__version__}"
-DEFAULT_WIDTH = 1280
+DEFAULT_WIDTH = 1660
 DEFAULT_HEIGHT = 800
 
 log = logging.getLogger(__name__)
@@ -80,8 +80,8 @@ def main() -> None:
             title=TITLE,
             width=DEFAULT_WIDTH,
             height=DEFAULT_HEIGHT,
-            min_width=800,
-            min_height=500,
+            min_width=1500,
+            min_height=600,
             # La croix ne ferme pas directement : on demande d'abord d'enregistrer.
             disable_close=True,
         )
