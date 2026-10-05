@@ -52,8 +52,18 @@ def _from_image(path: Path) -> list[float]:
 
 
 def _pil_to_texture(img: PilImage.Image) -> list[float]:
-    img = img.convert("RGBA").resize((THUMB_W, THUMB_H), PilImage.LANCZOS)
-    arr = np.array(img, dtype=np.float32) / 255.0
+    img = img.convert("RGBA")
+    w, h = img.size
+    scale = min(THUMB_W / w, THUMB_H / h)
+    new_w, new_h = int(w * scale), int(h * scale)
+    img = img.resize((new_w, new_h), PilImage.LANCZOS)
+
+    canvas = PilImage.new("RGBA", (THUMB_W, THUMB_H), (0, 0, 0, 255))
+    offset_x = (THUMB_W - new_w) // 2
+    offset_y = (THUMB_H - new_h) // 2
+    canvas.paste(img, (offset_x, offset_y))
+
+    arr = np.array(canvas, dtype=np.float32) / 255.0
     return arr.flatten().tolist()
 
 
