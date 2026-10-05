@@ -27,6 +27,30 @@ def test_dialogue_cree_puis_ouvert(context):
     assert dpg.is_item_shown(import_media.DIALOG_TAG)
 
 
+def test_champ_nom_vide_par_defaut(context):
+    import_media.create(on_files_selected=lambda paths: None)
+    assert dpg.get_item_configuration(import_media.DIALOG_TAG)["default_filename"] == ""
+
+
+def test_fichiers_cliques_prioritaires():
+    app_data = {
+        "file_name": "a.mp4",
+        "file_path_name": "C:/v/a.mp4",
+        "selections": {"a.mp4": "C:/v/a.mp4", "b.png": "C:/v/b.png"},
+    }
+    assert import_media.selected_paths(app_data) == [Path("C:/v/a.mp4"), Path("C:/v/b.png")]
+
+
+def test_nom_tape_a_la_main():
+    # Format réellement renvoyé par Dear PyGui quand on tape un nom sans cliquer de fichier.
+    app_data = {"file_name": "tape.mp4", "file_path_name": "C:/v/tape.mp4", "selections": {}}
+    assert import_media.selected_paths(app_data) == [Path("C:/v/tape.mp4")]
+
+
+def test_rien_de_choisi():
+    assert import_media.selected_paths({"file_name": " ", "selections": {}}) == []
+
+
 def test_erreurs_affichees_puis_videes(context):
     import_media.create(on_files_selected=lambda paths: None)
     import_media.show_error(Path("a.txt"), "Format non supporté : .txt")

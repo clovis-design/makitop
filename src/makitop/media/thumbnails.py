@@ -6,7 +6,7 @@ import av
 import numpy as np
 from PIL import Image as PilImage
 
-from makitop.model.media import Image, Media, Video
+from makitop.model.media import Media, MediaKind
 
 THUMB_W = 160
 THUMB_H = 90
@@ -15,9 +15,9 @@ _PLACEHOLDER_COLOR = (0.15, 0.15, 0.18, 1.0)  # gris foncé RGBA
 
 
 def generate(media: Media) -> list[float]:
-    if isinstance(media, Video):
+    if media.kind is MediaKind.VIDEO:
         return _from_video(media.path)
-    if isinstance(media, Image):
+    if media.kind is MediaKind.IMAGE:
         return _from_image(media.path)
     return _placeholder()
 

@@ -54,7 +54,7 @@ def create() -> None:
     # with dpg.theme(tag=SELECTED_THEME), dpg.theme_component(dpg.mvImageButton):
         # dpg.add_theme_color(dpg.mvThemeCol_Button, (41, 74, 122))
 
-    with dpg.child_window(tag=TAG, border=True, no_scrollbar=True):
+    with dpg.child_window(tag=TAG, border=False, no_scrollbar=True):
         for key, title in media.SECTIONS:
             tex_tag = texture_tag(key)
             
