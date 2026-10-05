@@ -72,9 +72,12 @@ def create() -> None:
     with dpg.theme(tag=SELECTED_THEME):
         with dpg.theme_component(dpg.mvImageButton):
             dpg.add_theme_color(dpg.mvThemeCol_Button, (41, 74, 122))
+            # Plus la valeur est haute, plus c'est arrondi (ex: 8 à 12 pour des coins doux)
+            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 20)
+            
         with dpg.theme_component(dpg.mvButton):
             dpg.add_theme_color(dpg.mvThemeCol_Button, (41, 74, 122))
-
+            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 20)
     # 3. Thème pour l'infobulle (texte au survol / hover)
     with dpg.theme(tag="sidebar_tooltip_theme"):
         with dpg.theme_component(dpg.mvTooltip):
