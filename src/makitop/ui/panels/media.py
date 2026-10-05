@@ -2,6 +2,7 @@
 dans la barre de navigation (imports, effets vidéo, effets audio, texte...)."""
 
 import threading
+from collections.abc import Callable
 
 import dearpygui.dearpygui as dpg
 
@@ -13,6 +14,7 @@ TITLE_TAG = "media_panel_title"
 
 _TEXTURE_REGISTRY = "media_texture_registry"
 _PANEL_HANDLER = "media_panel_handler"
+_CLICK_HANDLER = "media_click_handler"
 _ITEM_PADDING = 8
 _MISSING_COLOR = (230, 90, 80)
 
@@ -42,14 +44,16 @@ _current_cols: int = 0
 _current_row_tag: str | None = None
 _item_count: int = 0
 _lock = threading.Lock()
+_on_selected: Callable[[Media], None] | None = None
 
 
 def section_tag(key: str) -> str:
     return f"media_section_{key}"
 
 
-def create() -> None:
-    global _medias, _current_cols, _current_row_tag, _item_count
+def create(on_selected: Callable[[Media], None] | None = None) -> None:
+    global _medias, _current_cols, _current_row_tag, _item_count, _on_selected
+    _on_selected = on_selected
     _medias = []
     _current_cols = 0
     _current_row_tag = None
@@ -57,12 +61,19 @@ def create() -> None:
     dpg.add_texture_registry(tag=_TEXTURE_REGISTRY)
     with dpg.item_handler_registry(tag=_PANEL_HANDLER):
         dpg.add_item_resize_handler(callback=_on_panel_resize)
+    with dpg.item_handler_registry(tag=_CLICK_HANDLER):
+        dpg.add_item_clicked_handler(button=dpg.mvMouseButton_Left, callback=_on_media_clicked)
     with dpg.child_window(tag=TAG, border=True):
         dpg.add_text("", tag=TITLE_TAG)
         dpg.add_separator()
         for key, _ in SECTIONS:
             dpg.add_group(tag=section_tag(key), show=False)
     dpg.bind_item_handler_registry(TAG, _PANEL_HANDLER)
+
+
+def _on_media_clicked(sender, app_data) -> None:
+    if _on_selected is not None:
+        _on_selected(dpg.get_item_user_data(app_data[1]))
 
 
 def show_section(key: str) -> None:
@@ -142,7 +153,9 @@ def _append(media: Media, cols: int) -> None:
         width=thumbnails.THUMB_W,
         height=thumbnails.THUMB_H,
         parent=item_tag,
+        user_data=media,
     )
+    dpg.bind_item_handler_registry(draw_tag, _CLICK_HANDLER)
     dpg.draw_image(
         f"texture_{media.id}",
         pmin=(0, 0),
@@ -154,7 +167,8 @@ def _append(media: Media, cols: int) -> None:
     name = _truncate(media.path.stem, thumbnails.THUMB_W)
     text_w = dpg.get_text_size(name)[0]
     indent = max(0, int((thumbnails.THUMB_W - text_w) / 2))
-    dpg.add_text(name, indent=indent, parent=item_tag)
+    name_tag = dpg.add_text(name, indent=indent, parent=item_tag, user_data=media)
+    dpg.bind_item_handler_registry(name_tag, _CLICK_HANDLER)
     if not media.path.is_file():
         # Fichier déplacé ou supprimé : la fenêtre « Médias introuvables » permet de le relier.
         label = "Introuvable"

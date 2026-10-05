@@ -10,6 +10,12 @@ class MediaDecoder:
         self.container = av.open(str(path))
         self.video_stream = self.container.streams.video[0]
 
+    def close(self):
+        if self.container is not None:
+            self.container.close()
+        self.container = None
+        self.video_stream = None
+
     def get_info(self):
         return {
             "width": self.video_stream.width,

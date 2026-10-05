@@ -2,7 +2,6 @@ import cv2
 import dearpygui.dearpygui as dpg
 import numpy as np
 
-
 TAG = "preview_panel"
 
 VIDEO_TEXTURE_TAG = "video_texture"
@@ -13,6 +12,11 @@ FINAL_TIME_TEXT_TAG = "final_time"
 PREVIEW_WIDTH = 640
 PREVIEW_HEIGHT = 360
 
+
+def clear() -> None:
+    update_frame(np.zeros((PREVIEW_HEIGHT, PREVIEW_WIDTH, 3), dtype=np.uint8))
+    update_time(0)
+    initFinalTime(0)
 
 
 def create_video_texture() -> None:
@@ -77,7 +81,7 @@ def format_time(seconds: float) -> str:
     remaining_seconds = int(seconds % 60)
 
     return f"{minutes:02d}:{remaining_seconds:02d}"
-    
+
 def update_time(seconds: float) -> None:
 
     text = format_time(seconds)
@@ -139,5 +143,3 @@ def create(
             dpg.add_separator()
 
             dpg.add_text("00:00", tag=FINAL_TIME_TEXT_TAG)
-
-        

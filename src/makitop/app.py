@@ -7,14 +7,12 @@ import dearpygui.dearpygui as dpg
 
 from makitop import __version__
 from makitop.application.media import MediaImporter
-from makitop.application.projects import ProjectSession
-from makitop.storage.recent import RecentProjects, config_dir
 from makitop.application.playback import PlaybackController
-from makitop.engine.decoder import MediaDecoder
-from makitop.engine.render import Renderer
-from makitop.playback.player import Player
+from makitop.application.projects import ProjectSession
+from makitop.model.media import Media, MediaKind
+from makitop.storage.recent import RecentProjects, config_dir
 from makitop.ui import main_window, menu_bar
-from makitop.ui.dialogs import import_media, project_file
+from makitop.ui.dialogs import import_media, message, project_file
 from makitop.ui.panels import media as media_panel
 from makitop.ui.panels import preview
 
@@ -30,9 +28,31 @@ def main() -> None:
     session = ProjectSession(RecentProjects(config_dir() / "recent.json"))
     executor = ThreadPoolExecutor(thread_name_prefix="makitop")
     importer = MediaImporter(lambda: session.project, executor)
+    playback_controller = PlaybackController()
+
+    def select_media(media: Media) -> None:
+        if media.kind is not MediaKind.VIDEO:
+            message.show("Lecteur vidéo", "Sélectionnez un média vidéo pour le lire.")
+            return
+        try:
+            frame, duration = playback_controller.load(media.path)
+        except Exception as exc:
+            log.exception("Lecture impossible du média %s", media.path)
+            message.show("Lecture impossible", f"{media.path.name}\n{exc}")
+            return
+        preview.update_frame(frame)
+        preview.update_time(0)
+        preview.initFinalTime(duration)
+
+    def refresh_project_media() -> None:
+        playback_controller.close()
+        preview.clear()
+        _show_project_media(session, executor)
 
     dpg.create_context()
     try:
+        # Sélection et décodage restent sur le même thread que le rendu.
+        dpg.configure_app(manual_callback_management=True)
         main_window.build(
             actions={
                 menu_bar.NEW_PROJECT: project_file.new_project,
@@ -41,31 +61,19 @@ def main() -> None:
                 menu_bar.SAVE_PROJECT_AS: project_file.save_dialog,
                 menu_bar.IMPORT_MEDIA: import_media.open_dialog,
                 menu_bar.QUIT: project_file.quit_app,
-            }
+            },
+            playback_controller=playback_controller,
+            on_media_selected=select_media,
         )
         import_media.create(on_files_selected=importer.import_files)
         project_file.create(session)
 
         importer.on_failed(import_media.show_error)
 
-        decoder = MediaDecoder()
-        decoder.open("test.mp4")
-        renderer = Renderer(decoder)
-        player = Player(renderer)
-        playback_controller = PlaybackController(player)
-
-        main_window.build(playback_controller)
-
-        preview.initFinalTime(decoder.get_duration())
-
-
-        frame = decoder.get_first_frame()
-
-        preview.update_frame(frame)
         importer.on_imported(media_panel.add_media)
         importer.on_imported(lambda _: session.mark_dirty())
-        session.on_project_changed(lambda project: _show_project_media(session, executor))
-        session.on_media_relinked(lambda _: _show_project_media(session, executor))
+        session.on_project_changed(lambda project: refresh_project_media())
+        session.on_media_relinked(lambda _: refresh_project_media())
         session.on_state_changed(lambda: _refresh_title_and_recent(session))
 
         dpg.create_viewport(
@@ -83,7 +91,9 @@ def main() -> None:
         dpg.show_viewport()
         dpg.set_primary_window(main_window.ROOT, True)
         main_window.resize(*_viewport_client_size())
+        _refresh_title_and_recent(session)
         while dpg.is_dearpygui_running():
+            dpg.run_callbacks(dpg.get_callback_queue())
 
             current_time = playback_controller.current_time()
 
@@ -94,14 +104,12 @@ def main() -> None:
             if frame is not None:
                 preview.update_frame(frame)
 
-    
-        _refresh_title_and_recent(session)
-
-        dpg.render_dearpygui_frame()
+            dpg.render_dearpygui_frame()
 
     finally:
         # On attend les analyses en cours : elles peuvent encore appeler Dear PyGui.
         executor.shutdown(wait=True, cancel_futures=True)
+        playback_controller.close()
         dpg.destroy_context()
 
 
