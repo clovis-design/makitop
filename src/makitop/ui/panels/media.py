@@ -31,7 +31,7 @@ _BADGE_SIZE = 13  # taille de police des badges en pixels
 # (clé, titre affiché). La barre de navigation affiche un bouton par section.
 SECTIONS: list[tuple[str, str]] = [
     ("imports", "Médias importés"),
-    ("video_effects", "Effets vidéo"),
+    ("bibliotheque", "Bibliothèque"),
     ("text", "Texte"),
     ("transitions", "Transitions"),
 ]
