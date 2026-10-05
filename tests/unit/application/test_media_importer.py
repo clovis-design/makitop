@@ -15,6 +15,7 @@ def executor():
 def test_import_de_plusieurs_fichiers(executor, video_file, audio_file, image_file):
     project = Project()
     importer = MediaImporter(lambda: project, executor)
+    importer = MediaImporter(lambda: project, executor)
     imported = []
     importer.on_imported(imported.append)
 
@@ -28,6 +29,7 @@ def test_import_de_plusieurs_fichiers(executor, video_file, audio_file, image_fi
 
 def test_erreurs_signalees_sans_arreter_les_autres(executor, tmp_path, image_file):
     project = Project()
+    importer = MediaImporter(lambda: project, executor)
     importer = MediaImporter(lambda: project, executor)
     failures = []
     importer.on_failed(lambda path, message: failures.append((path, message)))
@@ -44,6 +46,7 @@ def test_erreurs_signalees_sans_arreter_les_autres(executor, tmp_path, image_fil
 
 def test_doublon_signale(executor, image_file):
     project = Project()
+    importer = MediaImporter(lambda: project, executor)
     importer = MediaImporter(lambda: project, executor)
     failures = []
     importer.on_failed(lambda path, message: failures.append(message))

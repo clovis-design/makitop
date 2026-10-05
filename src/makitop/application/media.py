@@ -57,7 +57,7 @@ class MediaImporter:
             self._notify_failed(path, f"Erreur inattendue : {path.name}")
             return None
 
-        log.info("Média importé : %s (%s)", media.name, type(media).__name__.lower())
+        log.info("Média importé : %s (%s)", media.name, media.kind)
         if project is not self._current_project():
             # Un autre projet a été ouvert pendant l'analyse : rien à afficher.
             return media

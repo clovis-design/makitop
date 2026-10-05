@@ -101,7 +101,7 @@ def _refresh() -> None:
                 callback=lambda *_, m=media: _choose_file_for(m),
             )
             with dpg.group():
-                dpg.add_text(f"{media.name}{media.extension}")
+                dpg.add_text(media.name)
                 dpg.add_text(str(media.path), color=(150, 150, 150), wrap=WIDTH - 130)
 
 

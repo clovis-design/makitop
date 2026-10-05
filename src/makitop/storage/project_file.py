@@ -18,17 +18,12 @@ import json
 import os
 from pathlib import Path
 
-from pydantic import ValidationError
-
-from makitop.model.media import Audio, Image, Media, Video
+from makitop.model.media import Media, MediaKind
 from makitop.model.project import Project
 
 EXTENSION = ".makitop"
 FORMAT = "makitop"
 VERSION = 1
-
-_TYPES: dict[str, type[Media]] = {"video": Video, "audio": Audio, "image": Image}
-_TYPE_NAMES = {cls: name for name, cls in _TYPES.items()}
 
 
 class ProjectFileError(Exception):
@@ -75,24 +70,32 @@ def load(path: Path) -> Project:
 
     try:
         media = [_media_from_dict(m, path.parent) for m in data.get("media", [])]
-    except (KeyError, TypeError, ValueError, ValidationError) as error:
+    except (KeyError, TypeError, ValueError) as error:
         raise ProjectFileError(f"Projet corrompu : {path.name}") from error
     return Project(name=str(data.get("name") or path.stem), media=media)
 
 
 def _media_to_dict(media: Media, project_dir: Path) -> dict:
-    data = media.model_dump(mode="json")
-    data["path"] = _portable_path(media.path, project_dir)
-    return {"type": _TYPE_NAMES[type(media)], **data}
+    data: dict = {
+        "type": media.kind.value,
+        "path": _portable_path(media.path, project_dir),
+        "id": media.id,
+    }
+    for field in ("duration", "width", "height", "fps", "video_codec",
+                  "audio_codec", "sample_rate", "channels"):
+        value = getattr(media, field)
+        if value is not None:
+            data[field] = value
+    return data
 
 
 def _media_from_dict(data: dict, project_dir: Path) -> Media:
     data = dict(data)
-    cls = _TYPES[data.pop("type")]
+    kind = MediaKind(data.pop("type"))
     path = Path(data.pop("path"))
     if not path.is_absolute():
         path = project_dir / path
-    return cls.model_validate({**data, "path": path})
+    return Media(path=path, kind=kind, **data)
 
 
 def _portable_path(path: Path, project_dir: Path) -> str:

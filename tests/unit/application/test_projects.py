@@ -1,7 +1,7 @@
 import pytest
 
 from makitop.application.projects import ProjectSession
-from makitop.model.media import Image
+from makitop.model.media import Media, MediaKind
 from makitop.storage.project_file import ProjectFileError
 from makitop.storage.recent import RecentProjects
 
@@ -12,7 +12,7 @@ def session(tmp_path):
 
 
 def _add_image(session, tmp_path):
-    session.project.add_media(Image(path=tmp_path / "a.png", width=1, height=1))
+    session.project.add_media(Media(path=tmp_path / "a.png", kind=MediaKind.IMAGE))
     session.mark_dirty()
 
 

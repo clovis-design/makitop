@@ -3,7 +3,7 @@ import pytest
 
 from makitop.application.projects import ProjectSession
 from makitop.media.probe import probe
-from makitop.model.media import Image
+from makitop.model.media import Media, MediaKind
 from makitop.storage.recent import RecentProjects
 from makitop.ui.dialogs import message, missing_media, project_file, unsaved_changes
 
@@ -18,7 +18,7 @@ def session(tmp_path):
 
 
 def _modify(session, tmp_path):
-    session.project.add_media(Image(path=tmp_path / "a.png", width=1, height=1))
+    session.project.add_media(Media(path=tmp_path / "a.png", kind=MediaKind.IMAGE))
     session.mark_dirty()
 
 
@@ -136,7 +136,7 @@ def test_ouverture_sans_media_manquant_n_affiche_rien(session, tmp_path, image_f
 
 
 def test_relier_a_un_mauvais_fichier_affiche_l_erreur(session, tmp_path, image_file, audio_file):
-    session.project.add_media(Image(path=tmp_path / "parti.png", width=1, height=1))
+    session.project.add_media(Media(path=tmp_path / "parti.png", kind=MediaKind.IMAGE))
     missing_media.show()
     missing_media.relink(session.project.media[0], audio_file)
     assert dpg.get_value(message.TEXT_TAG) == "son.wav n'est pas une image."

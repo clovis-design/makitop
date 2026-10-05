@@ -4,50 +4,39 @@ Un média n'est pas un clip : le clip représente l'utilisation d'un média dans
 """
 
 import uuid
+from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+class MediaKind(StrEnum):
+    VIDEO = "video"
+    AUDIO = "audio"
+    IMAGE = "image"
 
 
-class Media(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
+@dataclass(frozen=True)
+class Media:
     path: Path
-    name: str = ""
-    extension: str = ""
-    id: str = Field(default_factory=lambda: uuid.uuid4().hex)
-
-    @model_validator(mode="after")
-    def _defaults(self) -> "Media":
-        if not self.name:
-            object.__setattr__(self, "name", self.path.stem)
-        if not self.extension:
-            object.__setattr__(self, "extension", self.path.suffix.lower())
-        return self
-
-    @property
-    def has_audio(self) -> bool:
-        return isinstance(self, (Video, Audio)) and getattr(self, "audio_codec", None) is not None
-
-
-class Video(Media):
+    kind: MediaKind
+    # Durée en secondes ; None pour une image fixe.
     duration: float | None = None
-    width: int
-    height: int
+    # Vidéo et image.
+    width: int | None = None
+    height: int | None = None
+    # Vidéo.
     fps: float | None = None
     video_codec: str | None = None
+    # Vidéo avec son, ou audio seul.
     audio_codec: str | None = None
     sample_rate: int | None = None
     channels: int | None = None
+    id: str = field(default_factory=lambda: uuid.uuid4().hex)
 
+    @property
+    def name(self) -> str:
+        return self.path.name
 
-class Audio(Media):
-    duration: float | None = None
-    audio_codec: str
-    sample_rate: int | None = None
-    channels: int | None = None
-
-
-class Image(Media):
-    width: int
-    height: int
+    @property
+    def has_audio(self) -> bool:
+        return self.audio_codec is not None

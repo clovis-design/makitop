@@ -7,10 +7,11 @@ import marque le projet comme modifié) : ils doivent rester thread-safe.
 import logging
 import threading
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 from makitop.media.probe import MediaProbeError, probe
-from makitop.model.media import Media
+from makitop.model.media import Media, MediaKind
 from makitop.model.project import Project
 from makitop.storage import project_file
 from makitop.storage.recent import RecentProjects
@@ -21,7 +22,11 @@ ProjectListener = Callable[[Project], None]
 StateListener = Callable[[], None]
 MediaListener = Callable[[list[Media]], None]
 
-_KIND_NAMES = {"Video": "une vidéo", "Audio": "un fichier audio", "Image": "une image"}
+_KIND_NAMES = {
+    MediaKind.VIDEO: "une vidéo",
+    MediaKind.AUDIO: "un fichier audio",
+    MediaKind.IMAGE: "une image",
+}
 
 
 class ProjectSession:
@@ -95,11 +100,11 @@ class ProjectSession:
     @staticmethod
     def _relinked_copy(media: Media, path: Path) -> Media:
         new = probe(path)
-        if type(new) is not type(media):
-            expected = _KIND_NAMES.get(type(media).__name__, "le même type de média")
+        if new.kind is not media.kind:
+            expected = _KIND_NAMES[media.kind]
             raise MediaProbeError(f"{path.name} n'est pas {expected}.")
         # Même identifiant : les clips qui utilisent ce média continuent de le trouver.
-        return new.model_copy(update={"id": media.id})
+        return replace(new, id=media.id)
 
     def new(self) -> None:
         self._replace(Project(), path=None)
