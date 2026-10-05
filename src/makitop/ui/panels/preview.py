@@ -1,11 +1,145 @@
-"""Zone « Preview » : lecteur vidéo (texture alimentée par render(t))."""
-
+import cv2
 import dearpygui.dearpygui as dpg
+import numpy as np
 
 TAG = "preview_panel"
 
+VIDEO_TEXTURE_TAG = "video_texture"
+VIDEO_IMAGE_TAG = "video_image"
+TIME_TEXT_TAG = "preview_time"
+FINAL_TIME_TEXT_TAG = "final_time"
 
-def create() -> None:
-    with dpg.child_window(tag=TAG, border=False):
+PREVIEW_WIDTH = 640
+PREVIEW_HEIGHT = 360
+
+
+def clear() -> None:
+    update_frame(np.zeros((PREVIEW_HEIGHT, PREVIEW_WIDTH, 3), dtype=np.uint8))
+    update_time(0)
+    initFinalTime(0)
+
+
+def create_video_texture() -> None:
+    # Dear PyGui attend 4 valeurs par pixel :
+    # Rouge, Vert, Bleu, Alpha
+    empty_texture = [0.0] * (
+        PREVIEW_WIDTH
+        * PREVIEW_HEIGHT
+        * 4
+    )
+
+    with dpg.texture_registry():
+        dpg.add_dynamic_texture(
+            width=PREVIEW_WIDTH,
+            height=PREVIEW_HEIGHT,
+            default_value=empty_texture,
+            tag=VIDEO_TEXTURE_TAG,
+        )
+
+
+
+def update_frame(frame: np.ndarray) -> None:
+    # La frame venant de PyAV est en RGB :
+    # shape = (hauteur, largeur, 3)
+
+    resized_frame = cv2.resize(
+        frame,
+        (PREVIEW_WIDTH, PREVIEW_HEIGHT),
+    )
+
+    # Conversion 0-255 vers 0.0-1.0
+    rgb = resized_frame.astype(np.float32) / 255.0
+
+    # Dear PyGui veut du RGBA.
+    # On crée donc un canal alpha rempli à 1.0
+    # 1.0 = complètement opaque.
+    alpha = np.ones(
+        (
+            PREVIEW_HEIGHT,
+            PREVIEW_WIDTH,
+            1,
+        ),
+        dtype=np.float32,
+    )
+
+    # RGB + Alpha
+    rgba = np.concatenate(
+        (rgb, alpha),
+        axis=2,
+    )
+
+    # Transformation en tableau 1D pour Dear PyGui
+    texture_data = rgba.flatten()
+
+    dpg.set_value(
+        VIDEO_TEXTURE_TAG,
+        texture_data,
+    )
+
+def format_time(seconds: float) -> str:
+    minutes = int(seconds // 60)
+    remaining_seconds = int(seconds % 60)
+
+    return f"{minutes:02d}:{remaining_seconds:02d}"
+
+def update_time(seconds: float) -> None:
+
+    text = format_time(seconds)
+
+    dpg.set_value(
+        TIME_TEXT_TAG,
+        text,
+    )
+
+def initFinalTime(seconds: float) -> None:
+
+    text = format_time(seconds)
+
+    dpg.set_value(
+        FINAL_TIME_TEXT_TAG,
+        text,
+    )
+
+
+def create(
+    on_play=None,
+    on_pause=None,
+    on_stop=None,
+) -> None:
+
+    with dpg.child_window(tag=TAG, border=True):
+
         dpg.add_text("Preview")
+
         dpg.add_separator()
+
+        dpg.add_image(
+            VIDEO_TEXTURE_TAG,
+            tag=VIDEO_IMAGE_TAG,
+        )
+
+        dpg.add_separator()
+
+        with dpg.group(horizontal=True):
+
+            dpg.add_button(
+                label="Play",
+                callback=on_play,
+            )
+
+            dpg.add_button(
+                label="Pause",
+                callback=on_pause,
+            )
+
+            dpg.add_button(
+                label="Stop",
+                callback=on_stop,
+            )
+
+        with dpg.group(horizontal=True):
+            dpg.add_text("00:00", tag=TIME_TEXT_TAG)
+
+            dpg.add_separator()
+
+            dpg.add_text("00:00", tag=FINAL_TIME_TEXT_TAG)
