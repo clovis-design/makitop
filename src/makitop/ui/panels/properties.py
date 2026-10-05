@@ -6,6 +6,6 @@ TAG = "properties_panel"
 
 
 def create() -> None:
-    with dpg.child_window(tag=TAG, border=True):
+    with dpg.child_window(tag=TAG, border=False):
         dpg.add_text("Propriétés")
         dpg.add_separator()

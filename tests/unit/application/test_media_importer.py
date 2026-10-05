@@ -14,7 +14,8 @@ def executor():
 
 def test_import_de_plusieurs_fichiers(executor, video_file, audio_file, image_file):
     project = Project()
-    importer = MediaImporter(project, executor)
+    importer = MediaImporter(lambda: project, executor)
+    importer = MediaImporter(lambda: project, executor)
     imported = []
     importer.on_imported(imported.append)
 
@@ -28,7 +29,8 @@ def test_import_de_plusieurs_fichiers(executor, video_file, audio_file, image_fi
 
 def test_erreurs_signalees_sans_arreter_les_autres(executor, tmp_path, image_file):
     project = Project()
-    importer = MediaImporter(project, executor)
+    importer = MediaImporter(lambda: project, executor)
+    importer = MediaImporter(lambda: project, executor)
     failures = []
     importer.on_failed(lambda path, message: failures.append((path, message)))
 
@@ -44,7 +46,8 @@ def test_erreurs_signalees_sans_arreter_les_autres(executor, tmp_path, image_fil
 
 def test_doublon_signale(executor, image_file):
     project = Project()
-    importer = MediaImporter(project, executor)
+    importer = MediaImporter(lambda: project, executor)
+    importer = MediaImporter(lambda: project, executor)
     failures = []
     importer.on_failed(lambda path, message: failures.append(message))
 
@@ -53,3 +56,17 @@ def test_doublon_signale(executor, image_file):
 
     assert len(project.media) == 1
     assert failures and "Déjà importé" in failures[0]
+
+
+def test_import_dans_le_projet_ouvert_au_moment_de_l_import(executor, image_file):
+    first, second = Project(), Project()
+    current = first
+    importer = MediaImporter(lambda: current, executor)
+    imported = []
+    importer.on_imported(imported.append)
+
+    importer.import_files([image_file])[0].result(timeout=10)
+    current = second
+    assert len(first.media) == 1
+    assert second.media == []
+    assert len(imported) == 1
