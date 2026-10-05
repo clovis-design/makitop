@@ -35,6 +35,7 @@ def main() -> None:
                 menu_bar.SAVE_PROJECT: project_file.save,
                 menu_bar.SAVE_PROJECT_AS: project_file.save_dialog,
                 menu_bar.IMPORT_MEDIA: import_media.open_dialog,
+                menu_bar.QUIT: project_file.quit_app,
             }
         )
         import_media.create(on_files_selected=importer.import_files)
@@ -44,6 +45,7 @@ def main() -> None:
         importer.on_imported(media_panel.add_media)
         importer.on_imported(lambda _: session.mark_dirty())
         session.on_project_changed(lambda project: _show_project_media(session, executor))
+        session.on_media_relinked(lambda _: _show_project_media(session, executor))
         session.on_state_changed(lambda: _refresh_title_and_recent(session))
 
         dpg.create_viewport(
@@ -52,17 +54,20 @@ def main() -> None:
             height=DEFAULT_HEIGHT,
             min_width=800,
             min_height=500,
+            # La croix ne ferme pas directement : on demande d'abord d'enregistrer.
+            disable_close=True,
         )
+        dpg.set_exit_callback(project_file.quit_app)
         dpg.set_viewport_resize_callback(lambda: main_window.resize(*_viewport_client_size()))
         dpg.setup_dearpygui()
         dpg.show_viewport()
         dpg.set_primary_window(main_window.ROOT, True)
         main_window.resize(*_viewport_client_size())
 
-        last = session.recent.last()
-        if last is not None:
-            project_file.open_path(last)
         _refresh_title_and_recent(session)
+        # Le dernier projet est rouvert après quelques images : avant la première image,
+        # les polices ne sont pas prêtes et le panneau médias ne peut pas mesurer les noms.
+        dpg.set_frame_callback(3, lambda: _reopen_last_project(session))
 
         dpg.start_dearpygui()
     finally:
@@ -81,14 +86,24 @@ def _show_project_media(session: ProjectSession, executor: Executor) -> None:
         for media in list(project.media):
             if session.project is not project:
                 return
-            media_panel.add_media(media)
+            try:
+                media_panel.add_media(media)
+            except Exception:
+                # Sinon l'erreur disparaît silencieusement dans le thread de travail.
+                log.exception("Affichage impossible du média %s", media.path)
 
     executor.submit(show_all)
 
 
+def _reopen_last_project(session: ProjectSession) -> None:
+    last = session.recent.last()
+    if last is not None:
+        project_file.open_path(last)
+
+
 def _refresh_title_and_recent(session: ProjectSession) -> None:
     dpg.set_viewport_title(f"{session.title} - {TITLE}")
-    menu_bar.set_recent_projects(session.recent.paths(), project_file.open_path)
+    menu_bar.set_recent_projects(session.recent.paths(), project_file.open_recent)
 
 
 def _viewport_client_size() -> tuple[int, int]:

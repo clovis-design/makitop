@@ -14,6 +14,7 @@ TITLE_TAG = "media_panel_title"
 _TEXTURE_REGISTRY = "media_texture_registry"
 _PANEL_HANDLER = "media_panel_handler"
 _ITEM_PADDING = 8
+_MISSING_COLOR = (230, 90, 80)
 
 # Icônes : constantes à remplacer par les codepoints de la police personnalisée.
 _ICON_VIDEO = ">"
@@ -21,11 +22,11 @@ _ICON_AUDIO = "~"
 _ICON_IMAGE = "#"
 
 # Apparence des miniatures — modifier ici pour changer les couleurs.
-_THUMB_BORDER_COLOR = (80, 80, 80, 200)   # bordure de la miniature : RGBA
-_BADGE_BG_COLOR = (20, 20, 20, 210)       # fond des badges : RGBA, dernier canal = opacité (0–255)
+_THUMB_BORDER_COLOR = (80, 80, 80, 200)  # bordure de la miniature : RGBA
+_BADGE_BG_COLOR = (20, 20, 20, 210)  # fond des badges : RGBA, dernier canal = opacité (0–255)
 _BADGE_TEXT_COLOR = (255, 255, 255, 255)  # texte des badges : blanc opaque
-_BADGE_PAD = 3                            # marge intérieure des badges en pixels
-_BADGE_SIZE = 13                          # taille de police des badges en pixels
+_BADGE_PAD = 3  # marge intérieure des badges en pixels
+_BADGE_SIZE = 13  # taille de police des badges en pixels
 
 # (clé, titre affiché). La barre de navigation affiche un bouton par section.
 SECTIONS: list[tuple[str, str]] = [
@@ -154,6 +155,11 @@ def _append(media: Media, cols: int) -> None:
     text_w = dpg.get_text_size(name)[0]
     indent = max(0, int((thumbnails.THUMB_W - text_w) / 2))
     dpg.add_text(name, indent=indent, parent=item_tag)
+    if not media.path.is_file():
+        # Fichier déplacé ou supprimé : la fenêtre « Médias introuvables » permet de le relier.
+        label = "Introuvable"
+        indent = max(0, int((thumbnails.THUMB_W - dpg.get_text_size(label)[0]) / 2))
+        dpg.add_text(label, parent=item_tag, indent=indent, color=_MISSING_COLOR)
 
     _item_count += 1
 
