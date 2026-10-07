@@ -31,8 +31,7 @@ contient ses propres médias importés.
 - **Chemins** : un média situé dans le dossier du projet (ou un sous-dossier) est
   enregistré en chemin relatif, pour qu'on puisse déplacer ou partager le dossier
   entier. Les autres médias gardent leur chemin absolu.
-- **Médias introuvables** : à chaque ouverture (y compris la réouverture automatique au
-  lancement), les médias dont le fichier n'est plus à l'emplacement enregistré sont
+- **Médias introuvables** : à chaque ouverture d'un projet, les médias dont le fichier n'est plus à l'emplacement enregistré sont
   listés dans la fenêtre « Médias introuvables ». Ils restent dans le projet, marqués
   « Introuvable » dans le panneau médias. Relier un média à son nouveau fichier garde
   son `id` et retrouve automatiquement les autres médias manquants du même dossier.
@@ -41,10 +40,12 @@ contient ses propres médias importés.
 
 ## Hors du fichier de projet
 
-- La liste des 10 projets récents est dans `recent.json`, dans le dossier de
-  configuration de l'utilisateur (`%APPDATA%\Makitop` sous Windows,
-  `~/Library/Application Support/Makitop` sous macOS, `~/.config/Makitop` sous Linux).
-  Le dernier projet ouvert est rouvert au lancement.
+- La liste des projets connus (jusqu'à 100, chacun avec sa date de dernière utilisation)
+  est dans `recent.json`, dans le dossier de configuration de l'utilisateur
+  (`%APPDATA%\Makitop` sous Windows, `~/Library/Application Support/Makitop` sous macOS,
+  `~/.config/Makitop` sous Linux). Un projet y entre quand il est ouvert ou enregistré.
+  Elle alimente la page d'accueil, affichée au lancement (projets triés du plus
+  récemment utilisé au plus ancien), et le sous-menu « Projets récents » (10 premiers).
 - Les décodeurs ouverts, textures Dear PyGui et caches de rendu ne sont jamais
   enregistrés.
 
