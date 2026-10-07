@@ -11,6 +11,7 @@ from makitop.model.media import Media, MediaKind
 
 TAG = "media_panel"
 TITLE_TAG = "media_panel_title"
+CONTENT_TAG = "media_content_container"
 
 _TEXTURE_REGISTRY = "media_texture_registry"
 _PANEL_HANDLER = "media_panel_handler"
@@ -18,19 +19,16 @@ _CLICK_HANDLER = "media_click_handler"
 _ITEM_PADDING = 8
 _MISSING_COLOR = (230, 90, 80)
 
-# Icônes : constantes à remplacer par les codepoints de la police personnalisée.
 _ICON_VIDEO = ">"
 _ICON_AUDIO = "~"
 _ICON_IMAGE = "#"
 
-# Apparence des miniatures — modifier ici pour changer les couleurs.
-_THUMB_BORDER_COLOR = (80, 80, 80, 200)  # bordure de la miniature : RGBA
-_BADGE_BG_COLOR = (20, 20, 20, 210)  # fond des badges : RGBA, dernier canal = opacité (0–255)
-_BADGE_TEXT_COLOR = (255, 255, 255, 255)  # texte des badges : blanc opaque
-_BADGE_PAD = 3  # marge intérieure des badges en pixels
-_BADGE_SIZE = 13  # taille de police des badges en pixels
+_THUMB_BORDER_COLOR = (80, 80, 80, 200)
+_BADGE_BG_COLOR = (20, 20, 20, 210)
+_BADGE_TEXT_COLOR = (255, 255, 255, 255)
+_BADGE_PAD = 3
+_BADGE_SIZE = 13
 
-# (clé, titre affiché). La barre de navigation affiche un bouton par section.
 SECTIONS: list[tuple[str, str]] = [
     ("imports", "Médias importés"),
     ("bibliotheque", "Bibliothèque"),
@@ -73,8 +71,7 @@ _SORT_OPTIONS: list[tuple[str, str]] = [
     ("type", "Type"),
 ]
 _SORT_LABEL_TO_KEY: dict[str, str] = {label: key for key, label in _SORT_OPTIONS}
-
-_SORT_COMBO_W = 130  # largeur fixe de la liste déroulante de tri
+_SORT_COMBO_W = 130
 
 
 def _filter_btn_tag(kind: MediaKind | None) -> str:
@@ -91,6 +88,7 @@ def create(
 ) -> None:
     global _medias, _current_cols, _current_row_tag, _item_count, _on_selected, _on_add_media
     global _active_filter, _filter_active_theme, _search_query, _sort_key
+    
     _on_selected = on_selected
     _on_add_media = on_add_media
     _medias = []
@@ -100,76 +98,156 @@ def create(
     _active_filter = None
     _search_query = ""
     _sort_key = "import"
+
+    # 1. THÈME DU PANNEAU
+    with dpg.theme(tag="media_panel_theme"):
+        with dpg.theme_component(dpg.mvAll):
+            dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 12, 12)
+            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 8)
+            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 8, 6)
+
+    # 2. THÈME DU BOUTON FILTRE ACTIF
     with dpg.theme() as _filter_active_theme:
         with dpg.theme_component(dpg.mvButton):
             dpg.add_theme_color(dpg.mvThemeCol_Button, (60, 120, 175, 255))
             dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (80, 140, 195, 255))
             dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (40, 100, 155, 255))
+            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 8)
+
     dpg.add_texture_registry(tag=_TEXTURE_REGISTRY)
+    
     with dpg.item_handler_registry(tag=_PANEL_HANDLER):
         dpg.add_item_resize_handler(callback=_on_panel_resize)
+        
     with dpg.item_handler_registry(tag=_CLICK_HANDLER):
         dpg.add_item_clicked_handler(button=dpg.mvMouseButton_Left, callback=_on_media_clicked)
-    with dpg.child_window(tag=TAG, border=True):
-        with dpg.group(horizontal=True, tag=_TITLE_ROW_TAG):
+        
+    with dpg.child_window(tag=TAG, border=False):
+        dpg.bind_item_theme(TAG, "media_panel_theme")
+        
+        # Marge aérée en haut
+        dpg.add_spacer(height=4)
+        
+        # indent=16 pousse le bloc titre à 16 pixels du bord gauche
+        with dpg.group(horizontal=True, tag=_TITLE_ROW_TAG, indent=16):
             dpg.add_text("", tag=TITLE_TAG)
             dpg.add_spacer(width=0, tag=_TITLE_SPACER_TAG)
             dpg.add_button(
                 tag=_ADD_BUTTON_TAG,
                 label="+",
-                width=22,
-                height=18,
+                width=24,
+                height=24,
                 show=False,
                 callback=lambda: _on_add_media() if _on_add_media else None,
             )
             with dpg.tooltip(_ADD_BUTTON_TAG):
                 dpg.add_text("Ajouter des médias")
-        dpg.add_separator()
-        for key, _ in SECTIONS:
-            with dpg.group(tag=section_tag(key), show=False):
-                if key == "imports":
-                    with dpg.table(
-                        tag=_FILTER_ROW_TAG,
-                        header_row=False,
-                        borders_innerH=False,
-                        borders_outerH=False,
-                        borders_innerV=False,
-                        borders_outerV=False,
-                        width=-1,
-                    ):
-                        for _ in _FILTER_OPTIONS:
-                            dpg.add_table_column(width_stretch=True)
-                        dpg.add_table_column(
-                            width_fixed=True,
-                            init_width_or_weight=_SORT_COMBO_W,
-                        )
-                        with dpg.table_row():
-                            for kind, label in _FILTER_OPTIONS:
+        # Le séparateur ignore l'indentation, ce qui donne un bel effet "bord à bord" moderne
+        dpg.add_separator(indent=16)
+        
+        # Groupe principal du contenu : tout est poussé de 16px vers la droite
+        with dpg.group(tag="media_padded_content", indent=16):
+            for key, _ in SECTIONS:
+                with dpg.group(tag=section_tag(key), show=False):
+                    if key == "imports":
+                        with dpg.table(
+                            tag=_FILTER_ROW_TAG,
+                            header_row=False,
+                            borders_innerH=False,
+                            borders_outerH=False,
+                            borders_innerV=False,
+                            borders_outerV=False,
+                            width=100, # Largeur temporaire, écrasée instantanément par _on_panel_resize
+                        ):
+                            for _ in _FILTER_OPTIONS:
+                                dpg.add_table_column(width_stretch=True)
+                            dpg.add_table_column(
+                                width_fixed=True,
+                                init_width_or_weight=_SORT_COMBO_W,
+                            )
+                            with dpg.table_row():
+                                for kind, label in _FILTER_OPTIONS:
+                                    with dpg.table_cell():
+                                        dpg.add_button(
+                                            tag=_filter_btn_tag(kind),
+                                            label=label,
+                                            width=-1,
+                                            user_data=kind,
+                                            callback=lambda s, a, u: _set_filter(u),
+                                        )
                                 with dpg.table_cell():
-                                    dpg.add_button(
-                                        tag=_filter_btn_tag(kind),
-                                        label=label,
+                                    dpg.add_combo(
+                                        tag=_SORT_COMBO_TAG,
+                                        items=[label for _, label in _SORT_OPTIONS],
+                                        default_value=_SORT_OPTIONS[0][1],
                                         width=-1,
-                                        user_data=kind,
-                                        callback=lambda s, a, u: _set_filter(u),
+                                        callback=_on_sort_change,
                                     )
-                            with dpg.table_cell():
-                                dpg.add_combo(
-                                    tag=_SORT_COMBO_TAG,
-                                    items=[label for _, label in _SORT_OPTIONS],
-                                    default_value=_SORT_OPTIONS[0][1],
-                                    width=-1,
-                                    callback=_on_sort_change,
-                                )
-                    dpg.bind_item_theme(_filter_btn_tag(None), _filter_active_theme)
-                    dpg.add_input_text(
-                        tag=_SEARCH_TAG,
-                        hint="Rechercher...",
-                        width=-1,
-                        callback=_on_search_change,
-                    )
-                    dpg.add_group(tag=_GRID_TAG)
+                                    
+                        dpg.bind_item_theme(_filter_btn_tag(None), _filter_active_theme)
+                        
+                        dpg.add_input_text(
+                            tag=_SEARCH_TAG,
+                            hint="Rechercher...",
+                            width=100, # Largeur temporaire
+                            callback=_on_search_change,
+                        )
+                        
+                        dpg.add_spacer(height=8)
+                        dpg.add_group(tag=_GRID_TAG)
+                    
     dpg.bind_item_handler_registry(TAG, _PANEL_HANDLER)
+
+
+def _on_panel_resize() -> None:
+    with _lock:
+        w = dpg.get_item_rect_size(TAG)[0]
+        # On calcule mathématiquement la marge de droite
+        if w > 32:
+            inner_w = w - 32 # Largeur totale moins 16px à gauche et 16px à droite
+            
+            # On force les barres étirables à adopter cette largeur parfaite
+            if dpg.does_item_exist(_FILTER_ROW_TAG):
+                dpg.configure_item(_FILTER_ROW_TAG, width=inner_w)
+            if dpg.does_item_exist(_SEARCH_TAG):
+                dpg.configure_item(_SEARCH_TAG, width=inner_w)
+                
+        _update_title_spacer()
+        cols = _compute_cols()
+        if cols != _current_cols and _medias:
+            _rebuild(cols)
+
+
+def _compute_cols() -> int:
+    w = dpg.get_item_rect_size(TAG)[0]
+    if w <= 32:
+        return 1
+    # On précise à l'algorithme des miniatures que la largeur utile est amputée de 32px
+    w_inner = w - 32
+    return max(1, int((w_inner - _ITEM_PADDING) / (thumbnails.THUMB_W + _ITEM_PADDING)))
+
+
+def _update_title_spacer() -> None:
+    # 1. Vérification de sécurité au cas où l'élément n'existe pas encore
+    if not dpg.does_item_exist(TAG) or not dpg.does_item_exist(TITLE_TAG):
+        return
+
+    # 2. On récupère la taille du panneau principal (TAG)
+    panel_size = dpg.get_item_rect_size(TAG)
+    title_size = dpg.get_text_size(dpg.get_value(TITLE_TAG) or "")
+
+    # 3. Protection critique : Au lancement de l'application, la taille est [0, 0]
+    # car la carte graphique n'a pas encore dessiné la fenêtre. On ignore le calcul.
+    if not panel_size or not title_size or panel_size[0] <= 0:
+        return
+
+    # 4. Calcul de l'espacement :
+    # On retire 32px (16px de padding à gauche + 16px à droite)
+    # On retire 60px pour la largeur du bouton "+" et une marge de sécurité
+    spacer_w = max(0, int(panel_size[0]) - int(title_size[0]) - 32 - 60)
+    
+    if dpg.does_item_exist(_TITLE_SPACER_TAG):
+        dpg.configure_item(_TITLE_SPACER_TAG, width=spacer_w)
 
 
 def _on_media_clicked(sender, app_data) -> None:
@@ -205,7 +283,6 @@ def add_media(media: Media) -> None:
 
 
 def clear() -> None:
-    """Retire tous les médias affichés (changement de projet)."""
     global _current_cols, _current_row_tag, _item_count, _active_filter, _search_query, _sort_key
     with _lock:
         _medias.clear()
@@ -226,31 +303,6 @@ def clear() -> None:
         dpg.delete_item(_GRID_TAG, children_only=True)
         # Les images qui utilisaient les textures viennent d'être supprimées.
         dpg.delete_item(_TEXTURE_REGISTRY, children_only=True)
-
-
-def _on_panel_resize() -> None:
-    with _lock:
-        _update_title_spacer()
-        cols = _compute_cols()
-        if cols != _current_cols and _medias:
-            _rebuild(cols)
-
-
-def _update_title_spacer() -> None:
-    panel_size = dpg.get_item_rect_size(TAG)
-    title_size = dpg.get_text_size(dpg.get_value(TITLE_TAG) or "")
-    if panel_size is None or title_size is None:
-        return
-    spacer_w = max(0, int(panel_size[0]) - int(title_size[0]) - 22 - 30)
-    dpg.configure_item(_TITLE_SPACER_TAG, width=spacer_w)
-
-
-def _compute_cols() -> int:
-    w = dpg.get_item_rect_size(TAG)[0]
-    if w <= 0:
-        return 1
-    return max(1, int((w - _ITEM_PADDING) / (thumbnails.THUMB_W + _ITEM_PADDING)))
-
 
 def _get_displayed_medias() -> list[Media]:
     result: list[Media] = _medias
