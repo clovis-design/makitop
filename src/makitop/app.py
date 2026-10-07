@@ -7,14 +7,16 @@ import dearpygui.dearpygui as dpg
 
 from makitop import __version__
 from makitop.application.media import MediaImporter
-from makitop.application.playback import PlaybackController
 from makitop.application.projects import ProjectSession
+from makitop.application.timeline_playback import TimelinePlaybackController
 from makitop.model.media import Media, MediaKind
+from makitop.model.project import Project
+from makitop.model.timeline import Clip, Timeline
 from makitop.storage.recent import RecentProjects, config_dir
 from makitop.ui import home, main_window, menu_bar, screens
 from makitop.ui.dialogs import import_media, message, project_file
 from makitop.ui.panels import media as media_panel
-from makitop.ui.panels import preview
+from makitop.ui.panels import preview, timeline
 
 TITLE = f"Makitop {__version__}"
 DEFAULT_WIDTH = 1660
@@ -30,25 +32,81 @@ def main() -> None:
     session = ProjectSession(RecentProjects(config_dir() / "recent.json"))
     executor = ThreadPoolExecutor(thread_name_prefix="makitop")
     importer = MediaImporter(lambda: session.project, executor)
-    playback_controller = PlaybackController()
+    playback_controller = TimelinePlaybackController()
+    selected_media = None
+    viewing_montage = True
+
+    def show_montage(position=0.0):
+        nonlocal viewing_montage
+        viewing_montage = True
+        playback_controller.set_project(session.project, position)
+        preview.clear()
+        preview.initFinalTime(playback_controller.duration)
+        dpg.set_value("preview_mode", "Montage — vidéo sans audio")
+
+    def edit(action):
+        position = playback_controller.current_time() if viewing_montage else 0.0
+        try:
+            action()
+        except (ValueError, StopIteration) as exc:
+            message.show("Montage", str(exc))
+            return
+        session.mark_dirty()
+        timeline.refresh(session.project)
+        show_montage(position)
+
+    def add_portion(source_in, source_out):
+        def action():
+            if selected_media is None:
+                raise ValueError("Sélectionnez une vidéo dans les médias.")
+            if source_out > (selected_media.duration or 0):
+                raise ValueError("La sortie dépasse la durée de la vidéo.")
+            session.project.timeline.append(selected_media.id, source_in, source_out)
+        edit(action)
+
+    def split_clip():
+        if not viewing_montage:
+            show_montage()
+            return
+        fps = session.project.timeline.fps
+        position = round(playback_controller.current_time() * fps) / fps
+        edit(lambda: session.project.timeline.split(position))
+
+    def remove_clip():
+        index = timeline.selected_index()
+        if index is not None:
+            edit(lambda: session.project.timeline.remove(session.project.timeline.clips[index].id))
+
+    def seek_montage(position):
+        if not viewing_montage:
+            show_montage(position)
+        else:
+            playback_controller.seek(position)
 
     def select_media(media: Media) -> None:
+        nonlocal selected_media, viewing_montage
         if media.kind is not MediaKind.VIDEO:
             message.show("Lecteur vidéo", "Sélectionnez un média vidéo pour le lire.")
             return
-        try:
-            frame, duration = playback_controller.load(media.path)
-        except Exception as exc:
-            log.exception("Lecture impossible du média %s", media.path)
-            message.show("Lecture impossible", f"{media.path.name}\n{exc}")
+        if not media.duration or media.duration <= 0:
+            message.show("Lecture impossible", "Cette vidéo n'a pas de durée exploitable.")
             return
-        preview.update_frame(frame)
-        preview.update_time(0)
-        preview.initFinalTime(duration)
+        selected_media = media
+        viewing_montage = False
+        timeline.select_media(media)
+        playback_controller.set_project(Project(
+            media=[media], timeline=Timeline([Clip(media.id, 0, media.duration, 0)])
+        ))
+        preview.clear()
+        preview.initFinalTime(media.duration)
+        dpg.set_value("preview_mode", "Source — vidéo sans audio")
 
     def refresh_project_media() -> None:
-        playback_controller.close()
-        preview.clear()
+        nonlocal selected_media
+        selected_media = None
+        dpg.set_value("timeline_selection", "Aucune vidéo sélectionnée")
+        timeline.refresh(session.project)
+        show_montage()
         _show_project_media(session, executor)
 
     def show_home() -> None:
@@ -61,7 +119,7 @@ def main() -> None:
 
     dpg.create_context()
     try:
-        # Sélection et décodage restent sur le même thread que le rendu.
+        # Les callbacks modifient le modèle sur le thread UI ; le worker lit une copie.
         dpg.configure_app(manual_callback_management=True)
         main_window.build(
             actions={
@@ -78,6 +136,8 @@ def main() -> None:
         )
         home.create(on_new=project_file.new_project, on_open=project_file.open_dialog)
         import_media.create(on_files_selected=importer.import_files)
+        timeline.bind(add_portion, show_montage, seek_montage, split_clip, remove_clip)
+        show_montage()
         project_file.create(session)
 
         importer.on_failed(import_media.show_error)
@@ -111,10 +171,15 @@ def main() -> None:
 
             preview.update_time(current_time)
 
-            frame = playback_controller.current_frame()
-
-            if frame is not None:
-                preview.update_frame(frame)
+            if viewing_montage:
+                timeline.update_time(current_time)
+            try:
+                frame = playback_controller.poll()
+                if frame is not None:
+                    preview.update_frame(frame)
+            except Exception as exc:
+                log.exception("Rendu du montage impossible")
+                message.show("Lecture impossible", str(exc))
 
             dpg.render_dearpygui_frame()
 

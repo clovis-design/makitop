@@ -7,27 +7,37 @@ contient ses propres médias importés.
 ```json
 {
   "format": "makitop",
-  "version": 1,
+  "version": 2,
   "name": "Mon film",
   "media": [
-    {"type": "video", "path": "rushs/plage.mp4", "id": "…", "name": "plage",
-     "extension": ".mp4", "duration": 12.5, "width": 1920, "height": 1080, "fps": 25.0,
+    {"type": "video", "path": "rushs/plage.mp4", "id": "video-1",
+     "duration": 12.5, "width": 1920, "height": 1080, "fps": 25.0,
      "video_codec": "h264", "audio_codec": "aac", "sample_rate": 48000, "channels": 2},
     {"type": "image", "path": "D:\\logos\\logo.png", "id": "…", "width": 512, "height": 512}
-  ]
+  ],
+  "timeline": {
+    "fps": 30,
+    "clips": [
+      {"id": "clip-1", "media_id": "video-1", "source_in": 2.0,
+       "source_out": 6.0, "timeline_start": 0.0}
+    ]
+  }
 }
 ```
 
 ## Décisions
 
 - **Version** : `version` est un entier. Un fichier d'une version plus récente que
-  celle connue est refusé avec un message clair. Les migrations s'ajouteront dans
-  `storage/migrations.py` quand le format évoluera.
+  celle connue est refusé avec un message clair. Les projets v1 sont ouverts
+  avec une timeline vide ; les nouveaux enregistrements utilisent la v2.
 - **Types de médias** : `type` vaut `video`, `audio` ou `image` et correspond aux
-  classes `Video`, `Audio` et `Image` de `model/media.py`. Les autres champs sont
-  ceux du modèle Pydantic.
+  valeurs de `MediaKind` dans `model/media.py`. Les autres champs sont
+  ceux de la dataclass `Media`.
 - **Identifiants** : chaque média garde son `id` d'un enregistrement à l'autre ; les
-  futurs clips s'y référeront.
+  clips s'y réfèrent via `media_id` et possèdent leur propre identifiant.
+- **Timeline** : une piste vidéo sans chevauchement. Les positions sont exprimées
+  en secondes, avec une tolérance numérique aux frontières des clips. La durée
+  est calculée à partir de leur fin. `fps` définit la grille de prévisualisation.
 - **Chemins** : un média situé dans le dossier du projet (ou un sous-dossier) est
   enregistré en chemin relatif, pour qu'on puisse déplacer ou partager le dossier
   entier. Les autres médias gardent leur chemin absolu.
@@ -51,5 +61,5 @@ contient ses propres médias importés.
 
 ## À décider plus tard
 
-- convention de temps commune et paramètres vidéo du projet (résolution, FPS) ;
-- pistes, clips, effets et keyframes.
+- représentation temporelle rationnelle et résolution d'export ;
+- multipiste, effets et keyframes.

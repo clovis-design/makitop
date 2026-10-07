@@ -6,6 +6,7 @@ from collections.abc import Callable
 import dearpygui.dearpygui as dpg
 
 from makitop.application.playback import PlaybackController
+from makitop.application.timeline_playback import TimelinePlaybackController
 from makitop.model.media import Media
 from makitop.ui import menu_bar, shortcuts
 from makitop.ui.assets.style import COLORS, FONT_INTER
@@ -45,7 +46,7 @@ def apply_global_style() -> None:
 
 def build(
     actions: dict[str, Callable[[], None]] | None = None,
-    playback_controller: PlaybackController | None = None,
+    playback_controller: PlaybackController | TimelinePlaybackController | None = None,
     on_media_selected: Callable[[Media], None] | None = None,
 ) -> None:
     """`actions` associe un libellé de menu (voir menu_bar.MENUS) à la fonction à appeler.

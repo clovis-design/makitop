@@ -1,12 +1,13 @@
 """Lecture et écriture des fichiers de projet `.makitop` (JSON).
 
-Format (version 1) :
+Format (version 2 ; lecture des anciens projets version 1 conservée) :
 
     {
       "format": "makitop",
-      "version": 1,
+      "version": 2,
       "name": "Mon film",
-      "media": [{"type": "video", "path": "rushs/plage.mp4", "id": "...", ...}]
+      "media": [{"type": "video", "path": "rushs/plage.mp4", "id": "...", ...}],
+      "timeline": {"fps": 30, "clips": [...]}
     }
 
 Les chemins des médias situés dans le dossier du projet (ou un sous-dossier) sont
@@ -16,14 +17,16 @@ restent absolus.
 
 import json
 import os
+from dataclasses import asdict
 from pathlib import Path
 
 from makitop.model.media import Media, MediaKind
 from makitop.model.project import Project
+from makitop.model.timeline import Clip, Timeline
 
 EXTENSION = ".makitop"
 FORMAT = "makitop"
-VERSION = 1
+VERSION = 2
 
 
 class ProjectFileError(Exception):
@@ -39,6 +42,7 @@ def save(project: Project, path: Path) -> None:
         "version": VERSION,
         "name": project.name,
         "media": [_media_to_dict(m, path.parent) for m in project.media],
+        "timeline": asdict(project.timeline),
     }
     tmp = path.with_name(path.name + ".tmp")
     try:
@@ -70,9 +74,17 @@ def load(path: Path) -> Project:
 
     try:
         media = [_media_from_dict(m, path.parent) for m in data.get("media", [])]
-    except (KeyError, TypeError, ValueError) as error:
+        raw = data.get("timeline", {})
+        timeline = Timeline(
+            clips=[Clip(**clip) for clip in raw.get("clips", [])],
+            fps=raw.get("fps", 30),
+        )
+        videos = {m.id for m in media if m.kind is MediaKind.VIDEO}
+        if any(c.media_id not in videos for c in timeline.clips):
+            raise ValueError("Un clip référence une vidéo inconnue.")
+    except (AttributeError, KeyError, TypeError, ValueError) as error:
         raise ProjectFileError(f"Projet corrompu : {path.name}") from error
-    return Project(name=str(data.get("name") or path.stem), media=media)
+    return Project(name=str(data.get("name") or path.stem), media=media, timeline=timeline)
 
 
 def _media_to_dict(media: Media, project_dir: Path) -> dict:

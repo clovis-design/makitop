@@ -108,6 +108,7 @@ def create(
     with dpg.child_window(tag=TAG, border=True):
 
         dpg.add_text("Preview")
+        dpg.add_text("Montage — vidéo sans audio", tag="preview_mode")
 
         dpg.add_separator()
 

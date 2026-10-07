@@ -1,24 +1,31 @@
-
-
 class Renderer:
-
     def __init__(self, decoder):
         self.decoder = decoder
 
-
     def render(self, time: float):
+        """
+        Demande une frame précise à un instant donné.
+
+        À utiliser pour :
+        - un seek
+        - un slider
+        - un clic dans la timeline
+        """
         return self.decoder.get_frame_at(time)
-    
 
-    def get_frame_at(self, target_time: float):
-        self.container.seek(0)
+    def next_frame(self):
+        """
+        Récupère simplement la prochaine frame pendant Play.
+        On ne fait PAS de seek ici.
+        """
+        frame = self.decoder.next_frame()
 
-        for frame in self.container.decode(video=0):
+        if frame is None:
+            return None
 
-            if frame.time is None:
-                continue
+        if frame.time is None:
+            return None
 
-            if frame.time >= target_time:
-                return frame.to_ndarray(format="rgb24")
+        image = frame.to_ndarray(format="rgb24")
 
-        return None
+        return image, frame.time
