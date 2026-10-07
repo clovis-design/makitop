@@ -85,6 +85,16 @@ def open_path(path: Path) -> None:
     missing_media.show_if_missing()
 
 
+def close_project(then: Callable[[], None]) -> None:
+    """Ferme le projet (après confirmation s'il est modifié), puis appelle `then`."""
+
+    def close() -> None:
+        _require_session().new()
+        then()
+
+    unsaved_changes.confirm(close)
+
+
 def quit_app() -> None:
     unsaved_changes.confirm(dpg.stop_dearpygui)
 
