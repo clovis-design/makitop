@@ -62,7 +62,7 @@ def build(
         menu_bar.create(actions, shortcuts.labels())
         with dpg.group(horizontal=True):
             sidebar.create()
-            media.create(on_media_selected)
+            media.create(on_media_selected, actions.get(menu_bar.IMPORT_MEDIA))
             with dpg.group():
                 with dpg.group(horizontal=True):
                     preview.create(
