@@ -47,6 +47,7 @@ def build(
     actions: dict[str, Callable[[], None]] | None = None,
     playback_controller: PlaybackController | None = None,
     on_media_selected: Callable[[Media], None] | None = None,
+    on_add_to_timeline: Callable[[Media], None] | None = None,
 ) -> None:
     """`actions` associe un libellé de menu (voir menu_bar.MENUS) à la fonction à appeler.
     Les raccourcis clavier (ui/shortcuts.py) déclenchent les mêmes actions."""
@@ -57,7 +58,7 @@ def build(
         menu_bar.create(actions, shortcuts.labels())
         with dpg.group(horizontal=True):
             sidebar.create()
-            media.create(on_media_selected, actions.get(menu_bar.IMPORT_MEDIA))
+            media.create(on_media_selected, actions.get(menu_bar.IMPORT_MEDIA), on_add_to_timeline)
             with dpg.group():
                 with dpg.group(horizontal=True):
                     preview.create(

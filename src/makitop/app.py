@@ -15,6 +15,8 @@ from makitop.ui import main_window, menu_bar
 from makitop.ui.dialogs import import_media, message, project_file
 from makitop.ui.panels import media as media_panel
 from makitop.ui.panels import preview
+from makitop.ui.panels import timeline as timeline_panel
+from makitop.model.timeline import MediaClip
 
 TITLE = f"Makitop {__version__}"
 DEFAULT_WIDTH = 1660
@@ -44,10 +46,28 @@ def main() -> None:
         preview.update_time(0)
         preview.initFinalTime(duration)
 
+    def on_add_to_timeline(media: Media) -> None:
+        if media.duration is None:
+            return
+        project = session.project
+        clip = MediaClip(
+            timeline_start=project.timeline.duration,
+            media=media,
+            source_start=0.0,
+            source_end=media.duration,
+        )
+        project.timeline.add_clip(clip)
+        session.mark_dirty()
+        timeline_panel.add_clip(clip)
+
     def refresh_project_media() -> None:
         playback_controller.close()
         preview.clear()
+        timeline_panel.clear()
         _show_project_media(session, executor)
+        for clip in session.project.timeline.clips:
+            if isinstance(clip, MediaClip):
+                timeline_panel.add_clip(clip)
 
     dpg.create_context()
     try:
@@ -64,6 +84,7 @@ def main() -> None:
             },
             playback_controller=playback_controller,
             on_media_selected=select_media,
+            on_add_to_timeline=on_add_to_timeline,
         )
         import_media.create(on_files_selected=importer.import_files)
         project_file.create(session)

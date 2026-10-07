@@ -1,12 +1,22 @@
 """Lecture et écriture des fichiers de projet `.makitop` (JSON).
 
-Format (version 1) :
+Format (version 2) :
 
     {
       "format": "makitop",
-      "version": 1,
+      "version": 2,
       "name": "Mon film",
-      "media": [{"type": "video", "path": "rushs/plage.mp4", "id": "...", ...}]
+      "media": [{"type": "video", "path": "rushs/plage.mp4", "id": "...", ...}],
+      "timeline": [
+        {
+          "clip_type": "media",
+          "id": "...",
+          "timeline_start": 0.0,
+          "media_id": "...",
+          "source_start": 0.0,
+          "source_end": 10.5
+        }
+      ]
     }
 
 Les chemins des médias situés dans le dossier du projet (ou un sous-dossier) sont
@@ -20,10 +30,11 @@ from pathlib import Path
 
 from makitop.model.media import Media, MediaKind
 from makitop.model.project import Project
+from makitop.model.timeline import BaseClip, ImageClip, MediaClip, Timeline
 
 EXTENSION = ".makitop"
 FORMAT = "makitop"
-VERSION = 1
+VERSION = 2
 
 
 class ProjectFileError(Exception):
@@ -34,11 +45,13 @@ def save(project: Project, path: Path) -> None:
     """Écrit le projet. L'écriture passe par un fichier temporaire : un plantage
     pendant la sauvegarde ne corrompt pas le fichier existant."""
     path = Path(path)
+    media_index = {m.id: m for m in project.media}
     data = {
         "format": FORMAT,
         "version": VERSION,
         "name": project.name,
         "media": [_media_to_dict(m, path.parent) for m in project.media],
+        "timeline": [_clip_to_dict(c) for c in project.timeline.clips],
     }
     tmp = path.with_name(path.name + ".tmp")
     try:
@@ -70,9 +83,15 @@ def load(path: Path) -> Project:
 
     try:
         media = [_media_from_dict(m, path.parent) for m in data.get("media", [])]
+        media_index = {m.id: m for m in media}
+        clips = [_clip_from_dict(c, media_index) for c in data.get("timeline", [])]
     except (KeyError, TypeError, ValueError) as error:
         raise ProjectFileError(f"Projet corrompu : {path.name}") from error
-    return Project(name=str(data.get("name") or path.stem), media=media)
+    return Project(
+        name=str(data.get("name") or path.stem),
+        media=media,
+        timeline=Timeline(clips=clips),
+    )
 
 
 def _media_to_dict(media: Media, project_dir: Path) -> dict:
@@ -96,6 +115,48 @@ def _media_from_dict(data: dict, project_dir: Path) -> Media:
     if not path.is_absolute():
         path = project_dir / path
     return Media(path=path, kind=kind, **data)
+
+
+def _clip_to_dict(clip: BaseClip) -> dict:
+    if isinstance(clip, MediaClip):
+        return {
+            "clip_type": "media",
+            "id": clip.id,
+            "timeline_start": clip.timeline_start,
+            "media_id": clip.media.id,
+            "source_start": clip.source_start,
+            "source_end": clip.source_end,
+        }
+    if isinstance(clip, ImageClip):
+        return {
+            "clip_type": "image",
+            "id": clip.id,
+            "timeline_start": clip.timeline_start,
+            "media_id": clip.media.id,
+            "display_duration": clip.display_duration,
+        }
+    raise ValueError(f"Type de clip inconnu : {type(clip)}")
+
+
+def _clip_from_dict(data: dict, media_index: dict[str, Media]) -> BaseClip:
+    clip_type = data["clip_type"]
+    media = media_index[data["media_id"]]
+    if clip_type == "media":
+        return MediaClip(
+            timeline_start=float(data["timeline_start"]),
+            media=media,
+            source_start=float(data["source_start"]),
+            source_end=float(data["source_end"]),
+            id=data["id"],
+        )
+    if clip_type == "image":
+        return ImageClip(
+            timeline_start=float(data["timeline_start"]),
+            media=media,
+            display_duration=float(data["display_duration"]),
+            id=data["id"],
+        )
+    raise ValueError(f"Type de clip inconnu : {clip_type!r}")
 
 
 def _portable_path(path: Path, project_dir: Path) -> str:
