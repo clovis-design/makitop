@@ -1,11 +1,13 @@
 import time
+from pathlib import Path
 from threading import Event
 
 import numpy as np
 
 from makitop.application.timeline_playback import TimelinePlaybackController
+from makitop.model.media import Media, MediaKind
 from makitop.model.project import Project
-from makitop.model.timeline import Clip, Timeline
+from makitop.model.timeline import MediaClip, Timeline
 
 
 class Renderer:
@@ -27,7 +29,9 @@ def wait_frame(controller):
 
 
 def project():
-    return Project(timeline=Timeline([Clip("source", 0, 1, 0)], fps=10))
+    media = Media(path=Path("source.mp4"), kind=MediaKind.VIDEO, duration=1.0)
+    clip = MediaClip(timeline_start=0.0, media=media, source_start=0.0, source_end=1.0)
+    return Project(timeline=Timeline(clips=[clip], fps=10))
 
 
 def test_clock_controls_frames_not_ui_iterations(monkeypatch):

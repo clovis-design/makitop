@@ -1,4 +1,4 @@
-"""Projet de montage : ressources importées et timeline non destructive."""
+"""Projet de montage : médias importés et timeline."""
 
 from dataclasses import dataclass, field
 from pathlib import Path

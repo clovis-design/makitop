@@ -44,6 +44,8 @@ _item_count: int = 0
 _lock = threading.Lock()
 _on_selected: Callable[[Media], None] | None = None
 _on_add_media: Callable[[], None] | None = None
+_on_add_to_timeline: Callable[[Media], None] | None = None
+_right_clicked_media: Media | None = None
 _active_filter: MediaKind | None = None
 _filter_active_theme: int = 0
 _search_query: str = ""
@@ -56,6 +58,7 @@ _GRID_TAG = "media_imports_grid"
 _FILTER_ROW_TAG = "media_filter_row"
 _SEARCH_TAG = "media_search_input"
 _SORT_COMBO_TAG = "media_sort_combo"
+_CONTEXT_MENU_TAG = "media_context_menu"
 
 _FILTER_OPTIONS: list[tuple[MediaKind | None, str]] = [
     (None, "Tous"),
@@ -85,12 +88,13 @@ def section_tag(key: str) -> str:
 def create(
     on_selected: Callable[[Media], None] | None = None,
     on_add_media: Callable[[], None] | None = None,
+    on_add_to_timeline: Callable[[Media], None] | None = None,
 ) -> None:
     global _medias, _current_cols, _current_row_tag, _item_count, _on_selected, _on_add_media
-    global _active_filter, _filter_active_theme, _search_query, _sort_key
-    
+    global _active_filter, _filter_active_theme, _search_query, _sort_key, _on_add_to_timeline
     _on_selected = on_selected
     _on_add_media = on_add_media
+    _on_add_to_timeline = on_add_to_timeline
     _medias = []
     _current_cols = 0
     _current_row_tag = None
@@ -122,6 +126,22 @@ def create(
     with dpg.item_handler_registry(tag=_CLICK_HANDLER):
         dpg.add_item_clicked_handler(button=dpg.mvMouseButton_Left, callback=_on_media_clicked)
         
+    
+        dpg.add_item_clicked_handler(button=dpg.mvMouseButton_Right, callback=_on_media_right_clicked)
+    with dpg.window(
+        tag=_CONTEXT_MENU_TAG,
+        popup=True,
+        show=False,
+        no_title_bar=True,
+        no_move=True,
+        no_resize=True,
+        autosize=True,
+        min_size=[1, 1],
+    ):
+        dpg.add_menu_item(
+            label="Ajouter à la timeline",
+            callback=_on_context_add_to_timeline,
+        )
     with dpg.child_window(tag=TAG, border=False):
         dpg.bind_item_theme(TAG, "media_panel_theme")
         
@@ -253,6 +273,20 @@ def _update_title_spacer() -> None:
 def _on_media_clicked(sender, app_data) -> None:
     if _on_selected is not None:
         _on_selected(dpg.get_item_user_data(app_data[1]))
+
+
+def _on_media_right_clicked(sender, app_data) -> None:
+    global _right_clicked_media
+    media = dpg.get_item_user_data(app_data[1])
+    if not isinstance(media, Media) or media.kind is not MediaKind.VIDEO:
+        return
+    _right_clicked_media = media
+    dpg.configure_item(_CONTEXT_MENU_TAG, show=True, pos=list(dpg.get_mouse_pos()))
+
+
+def _on_context_add_to_timeline() -> None:
+    if _right_clicked_media is not None and _on_add_to_timeline is not None:
+        _on_add_to_timeline(_right_clicked_media)
 
 
 def show_section(key: str) -> None:
