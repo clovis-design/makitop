@@ -20,10 +20,10 @@ class TimelineRenderer:
         clip = project.timeline.clip_at(time)
         if clip is None:
             return np.zeros((self.height, self.width, 3), dtype=np.uint8)
-        media = next(m for m in project.media if m.id == clip.media_id)
+        media = clip.media
         stat = media.path.stat()
         identity = (str(media.path.resolve()), stat.st_mtime_ns, stat.st_size)
-        source_time = max(clip.source_in, clip.source_in + time - clip.timeline_start)
+        source_time = max(clip.source_start, clip.source_start + time - clip.timeline_start)
         key = (identity, round(source_time, 9), self.width, self.height)
         image = self.cache.get(key)
         if image is not None:

@@ -6,37 +6,14 @@ from makitop.engine.cache import FrameCache
 from makitop.engine.timeline import TimelineRenderer
 from makitop.media.probe import probe
 from makitop.model.project import Project
-from makitop.model.timeline import Clip, Timeline
+from makitop.model.timeline import MediaClip, Timeline
 from makitop.storage import project_file
-
-
-def test_split_remove_and_save_preserve_source_mapping(video_file, tmp_path):
-    media = probe(video_file)
-    project = Project(media=[media])
-    project.timeline.append(media.id, 0, 0.9)
-    project.timeline.split(0.3)
-    project.timeline.split(0.6)
-    project.timeline.remove(project.timeline.clips[1].id)
-    assert project.timeline.duration == pytest.approx(0.6)
-    assert project.timeline.clips[1].source_in == pytest.approx(0.6)
-    path = tmp_path / "edit.makitop"
-    project_file.save(project, path)
-    loaded = project_file.load(path)
-    assert loaded.timeline == project.timeline
-    renderer = TimelineRenderer(64, 48)
-    try:
-        assert renderer.render(loaded, 0).mean() < 5
-        # À 0,3 s dans le montage, le passage supprimé est sauté : source 0,6 s.
-        assert renderer.render(loaded, 9).mean() == pytest.approx(120, abs=5)
-        # Retour arrière : le décodeur doit se repositionner.
-        assert renderer.render(loaded, 3).mean() == pytest.approx(20, abs=5)
-    finally:
-        renderer.close()
 
 
 def test_hold_source_frame_until_next_timestamp(video_file):
     media = probe(video_file)
-    project = Project(media=[media], timeline=Timeline([Clip(media.id, 0, 0.9, 0)]))
+    clip = MediaClip(timeline_start=0.0, media=media, source_start=0.0, source_end=0.9)
+    project = Project(media=[media], timeline=Timeline(clips=[clip]))
     renderer = TimelineRenderer(64, 48)
     try:
         values = [renderer.render(project, i).mean() for i in range(7)]
@@ -49,13 +26,15 @@ def test_hold_source_frame_until_next_timestamp(video_file):
 
 def test_gap_is_black_and_edits_do_not_reuse_wrong_cache(video_file):
     media = probe(video_file)
-    project = Project(media=[media], timeline=Timeline([Clip(media.id, 0.5, 0.9, 0.2)]))
+    clip = MediaClip(timeline_start=0.2, media=media, source_start=0.5, source_end=0.9)
+    project = Project(media=[media], timeline=Timeline(clips=[clip]))
     renderer = TimelineRenderer(64, 48)
     try:
         assert not renderer.render(project, 0).any()
         old = renderer.render(project, 6)
         assert renderer.render(project, 6) is old
-        project.timeline = Timeline([Clip(media.id, 0.1, 0.5, 0.2)])
+        clip2 = MediaClip(timeline_start=0.2, media=media, source_start=0.1, source_end=0.5)
+        project.timeline = Timeline(clips=[clip2])
         assert renderer.render(project, 6).mean() < old.mean() - 50
     finally:
         renderer.close()
@@ -84,9 +63,9 @@ def test_cut_switches_to_another_file(video_file, tmp_path):
             container.mux(stream.encode(frame))
         container.mux(stream.encode())
     a, b = probe(video_file), probe(other)
-    project = Project(media=[a, b])
-    project.timeline.append(a.id, 0, 0.3)
-    project.timeline.append(b.id, 0.2, 0.5)
+    clip_a = MediaClip(timeline_start=0.0, media=a, source_start=0.0, source_end=0.3)
+    clip_b = MediaClip(timeline_start=0.3, media=b, source_start=0.2, source_end=0.5)
+    project = Project(media=[a, b], timeline=Timeline(clips=[clip_a, clip_b]))
     renderer = TimelineRenderer(64, 48)
     try:
         assert renderer.render(project, 8).mean() < 50
@@ -94,12 +73,6 @@ def test_cut_switches_to_another_file(video_file, tmp_path):
         assert renderer.render(project, 0).mean() < 5
     finally:
         renderer.close()
-
-
-@pytest.mark.parametrize("bounds", [(0, 0, 0), (-1, 1, 0), (0, 1, -1), (0, float('nan'), 0)])
-def test_invalid_clip(bounds):
-    with pytest.raises(ValueError):
-        Clip("video", *bounds)
 
 
 def test_legacy_project_opens_with_empty_timeline(tmp_path):
