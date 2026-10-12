@@ -83,3 +83,38 @@ def test_video_without_audio_is_silent(video_file):
         assert renderer.decoder is None
     finally:
         renderer.close()
+
+
+def test_mix_tracks_volume_mute_and_independent_source_times(signal_file):
+    media = probe(signal_file)
+    a = MediaClip(0, media, 0.1, 0.3, volume=0.5)
+    b = MediaClip(0, media, 0.6, 0.8, volume=0.25, track=1)
+    project = Project(timeline=Timeline(clips=[a, b]))
+    renderer = TimelineAudioRenderer()
+    try:
+        samples = renderer.render(project, 0, 1024)
+        np.testing.assert_allclose(samples[:, 0], 0.125, atol=1e-5)
+        np.testing.assert_allclose(samples[:, 1], -0.125, atol=1e-5)
+        b.muted = True
+        samples = renderer.render(project, 1024, 1024)
+        np.testing.assert_allclose(samples[:, 0], 0.125, atol=1e-5)
+        assert not samples[:, 1].any()
+        assert b.id not in renderer.decoders
+        a.volume = 0
+        assert not renderer.render(project, 2048, 1024).any()
+    finally:
+        renderer.close()
+
+
+def test_mix_is_limited_to_output_range(signal_file):
+    media = probe(signal_file)
+    project = Project(timeline=Timeline(clips=[
+        MediaClip(0, media, 0.1, 0.3, volume=2, track=i) for i in range(3)
+    ]))
+    renderer = TimelineAudioRenderer()
+    try:
+        samples = renderer.render(project, 0, 1024)
+        assert samples.max() == 1
+        assert not samples[:, 1].any()
+    finally:
+        renderer.close()

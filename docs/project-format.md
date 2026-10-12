@@ -1,65 +1,76 @@
-# Format de projet `.makitop`
+# Format des projets `.makitop`
 
-Un projet est un fichier JSON (UTF-8) portant l'extension `.makitop`, lu et écrit par
-`storage/project_file.py`. L'utilisateur l'enregistre où il veut ; chaque projet
-contient ses propres médias importés.
+Un projet est un document JSON UTF-8. La version actuelle est **3**.
 
 ```json
 {
   "format": "makitop",
-  "version": 2,
-  "name": "Mon film",
+  "version": 3,
+  "name": "Mon montage",
+  "canvas_format": "16:9",
+  "fps": 30,
   "media": [
-    {"type": "video", "path": "rushs/plage.mp4", "id": "video-1",
-     "duration": 12.5, "width": 1920, "height": 1080, "fps": 25.0,
-     "video_codec": "h264", "audio_codec": "aac", "sample_rate": 48000, "channels": 2},
-    {"type": "image", "path": "D:\\logos\\logo.png", "id": "…", "width": 512, "height": 512}
+    {"id": "video-1", "type": "video", "path": "rushs/plan.mp4",
+     "duration": 12.5, "width": 1920, "height": 1080, "fps": 25,
+     "video_codec": "h264", "audio_codec": "aac", "sample_rate": 48000, "channels": 2}
   ],
-  "timeline": {
-    "fps": 30,
-    "clips": [
-      {"id": "clip-1", "media_id": "video-1", "source_in": 2.0,
-       "source_out": 6.0, "timeline_start": 0.0}
-    ]
-  }
+  "timeline": [
+    {
+      "clip_type": "media",
+      "id": "clip-1",
+      "media_id": "video-1",
+      "timeline_start": 0.0,
+      "source_start": 1.0,
+      "source_end": 8.0,
+      "track": 0,
+      "transform": {
+        "x": 0.0, "y": 0.0, "width": 0.5, "height": 1.0,
+        "crop_left": 0.0, "crop_top": 0.0, "crop_right": 0.0, "crop_bottom": 0.0
+      },
+      "volume": 0.8,
+      "muted": false
+    }
+  ]
 }
 ```
 
-## Décisions
+## Règles
 
-- **Version** : `version` est un entier. Un fichier d'une version plus récente que
-  celle connue est refusé avec un message clair. Les projets v1 sont ouverts
-  avec une timeline vide ; les nouveaux enregistrements utilisent la v2.
-- **Types de médias** : `type` vaut `video`, `audio` ou `image` et correspond aux
-  valeurs de `MediaKind` dans `model/media.py`. Les autres champs sont
-  ceux de la dataclass `Media`.
-- **Identifiants** : chaque média garde son `id` d'un enregistrement à l'autre ; les
-  clips s'y réfèrent via `media_id` et possèdent leur propre identifiant.
-- **Timeline** : une piste vidéo sans chevauchement. Les positions sont exprimées
-  en secondes, avec une tolérance numérique aux frontières des clips. La durée
-  est calculée à partir de leur fin. `fps` définit la grille de prévisualisation.
-- **Chemins** : un média situé dans le dossier du projet (ou un sous-dossier) est
-  enregistré en chemin relatif, pour qu'on puisse déplacer ou partager le dossier
-  entier. Les autres médias gardent leur chemin absolu.
-- **Médias introuvables** : à chaque ouverture d'un projet, les médias dont le fichier n'est plus à l'emplacement enregistré sont
-  listés dans la fenêtre « Médias introuvables ». Ils restent dans le projet, marqués
-  « Introuvable » dans le panneau médias. Relier un média à son nouveau fichier garde
-  son `id` et retrouve automatiquement les autres médias manquants du même dossier.
-- **Écriture sûre** : l'enregistrement écrit d'abord un fichier `.tmp`, puis le renomme ;
-  un plantage pendant l'enregistrement ne corrompt pas le projet existant.
+- **Cadre** : `canvas_format` vaut `16:9`, `9:16` ou `1:1`. `fps` est une cadence
+  entière entre 1 et 120 images/s. Par défaut : 16:9 et 30 images/s.
+- **Médias** : ressources importées de type `video`, `audio` ou `image`.
+  Les chemins situés dans le dossier du projet sont relatifs ; les autres sont
+  absolus. Les identifiants sont stables entre deux sauvegardes.
+- **Clips** : occurrences des ressources dans le montage. `clip_type: media`
+  possède `source_start` et `source_end` ; `clip_type: image` possède à leur place
+  `display_duration`. La durée d'une portion vidéo est `source_end - source_start`.
+  Les temps sont exprimés en secondes et les intervalles excluent leur fin.
+- **Pistes** : indices de 0 à 99. La piste 0 est le fond ; une piste supérieure
+  se dessine par-dessus. Sur la même piste, les occurrences simultanées suivent
+  l'ordre de la liste (la dernière se dessine devant). Leurs sons sont additionnés.
+- **Géométrie** : `x`, `y`, `width` et `height` sont relatifs au cadre (0 à 1 pour
+  ses dimensions nominales). La source recadrée est ajustée dans ce rectangle en
+  conservant ses proportions. Une position peut déborder ; l'image est coupée au
+  cadre. Les quatre marges `crop_*` sont des fractions des dimensions sources.
+- **Audio** : gain linéaire `volume` entre 0 et 2 ; `muted` coupe l'occurrence.
+  Les transformations visuelles ne modifient pas l'audio.
+- **Sauvegarde atomique** : écriture dans un fichier temporaire puis remplacement
+  du projet. Les fichiers sources restent inchangés.
 
-## Hors du fichier de projet
+## Compatibilité
 
-- La liste des projets connus (jusqu'à 100, chacun avec sa date de dernière utilisation)
-  est dans `recent.json`, dans le dossier de configuration de l'utilisateur
-  (`%APPDATA%\Makitop` sous Windows, `~/Library/Application Support/Makitop` sous macOS,
-  `~/.config/Makitop` sous Linux). Un projet y entre quand il est ouvert ou enregistré.
-  Elle alimente la page d'accueil, affichée au lancement (projets triés du plus
-  récemment utilisé au plus ancien), et le sous-menu « Projets récents » (10 premiers).
-- Les décodeurs ouverts, textures Dear PyGui et caches de rendu ne sont jamais
-  enregistrés.
+- Les projets v1 sans timeline s'ouvrent avec un montage vide.
+- La variante v2 avec une liste de `MediaClip` / `ImageClip` reste lisible.
+- La variante v2 avec `timeline: {fps, clips}` et des bornes `source_in` /
+  `source_out` est convertie à la lecture.
+- Les anciens clips reçoivent par défaut la piste 0, une géométrie plein cadre
+  avec conservation des proportions, le volume 1 et `muted: false`.
+- Une version plus récente que celle comprise par l'application est refusée.
+  L'enregistrement d'un ancien projet produit le format v3.
 
-## À décider plus tard
+## Ressources externes
 
-- représentation temporelle rationnelle et résolution d'export ;
-- multipiste, effets et keyframes.
+Les médias manquants peuvent être reliés à leurs nouveaux chemins. La mise à jour
+conserve leur identifiant et actualise les occurrences dans la timeline.
+La liste des projets récents appartient au fichier de configuration `recent.json`.
+Les décodeurs, textures et caches de rendu ne sont jamais sérialisés.

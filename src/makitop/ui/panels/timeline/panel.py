@@ -1,9 +1,11 @@
 """Panneau timeline : règle, pistes et clips."""
 
+from dataclasses import replace
+
 import dearpygui.dearpygui as dpg
 
 from makitop.media.thumbnails import THUMB_H, THUMB_W
-from makitop.model.timeline import MediaClip
+from makitop.model.timeline import BaseClip, ImageClip
 
 TAG = "timeline_panel"
 CURSOR = "timeline_cursor"
@@ -42,12 +44,17 @@ _COLOR_CLIP_TEXT = (220, 225, 235, 255)
 _COLOR_PLAYHEAD = (210, 60, 60, 255)
 
 # ── État ──────────────────────────────────────────────────────────────────────
-_clips: list[MediaClip] = []
+_clips: list[BaseClip] = []
 _playhead_sec: float = 0.0
+_editor = None
+_on_error = None
+_gesture = None
 
 
 def create() -> None:
     global _zoom_idx, _px_per_sec, _clips, _playhead_sec
+    global _editor, _gesture
+    _editor, _gesture = None, None
     _zoom_idx = _DEFAULT_ZOOM_IDX
     _px_per_sec = _ZOOM_LEVELS[_DEFAULT_ZOOM_IDX]
     _clips = []
@@ -61,6 +68,10 @@ def create() -> None:
         with dpg.group(horizontal=True, tag=_TOOLBAR_TAG):
             dpg.add_button(label="-", width=24, height=22, callback=_zoom_out)
             dpg.add_button(label="+", width=24, height=22, callback=_zoom_in)
+            dpg.add_text("Glissez les clips / leurs bords. Pistes hautes = premier plan.")
+        dpg.add_slider_float(tag=CURSOR, label="Position (s)", width=-120,
+                             min_value=0, max_value=0, format="%.2f",
+                             callback=lambda s, v: _editor.seek(v) if _editor else None)
         dpg.add_separator()
 
         # ── Zone principale : labels (fixe) + timeline (scrollable) ───────────
@@ -90,9 +101,15 @@ def create() -> None:
                 )
 
     dpg.bind_item_handler_registry(TAG, _HANDLER_TAG)
+    with dpg.item_handler_registry(tag="timeline_click_handler"):
+        dpg.add_item_clicked_handler(button=dpg.mvMouseButton_Left, callback=_click)
+    dpg.bind_item_handler_registry(_DRAWLIST_TAG, "timeline_click_handler")
+    with dpg.handler_registry(tag="timeline_mouse_handlers"):
+        dpg.add_mouse_drag_handler(button=dpg.mvMouseButton_Left, threshold=3, callback=_drag)
+        dpg.add_mouse_release_handler(button=dpg.mvMouseButton_Left, callback=_release)
 
 
-def add_clip(clip: MediaClip) -> None:
+def add_clip(clip: BaseClip) -> None:
     _clips.append(clip)
     _redraw()
 
@@ -105,7 +122,100 @@ def clear() -> None:
 def set_playhead(seconds: float) -> None:
     global _playhead_sec
     _playhead_sec = seconds
+    dpg.set_value(CURSOR, seconds)
     _redraw()
+
+
+def bind(editor, on_error):
+    global _editor, _on_error
+    _editor, _on_error = editor, on_error
+    refresh()
+
+
+def refresh():
+    global _clips
+    if _editor is not None:
+        _clips = list(_editor.project.timeline.clips)
+        dpg.configure_item(CURSOR, max_value=_editor.project.timeline.duration)
+    _redraw()
+
+
+def _tracks():
+    return list(range(max((c.track for c in _clips), default=0), -1, -1))
+
+
+def _mouse():
+    x, y = dpg.get_mouse_pos(local=False)
+    ox, oy = dpg.get_item_rect_min(_DRAWLIST_TAG)
+    return x - ox, y - oy
+
+
+def _click():
+    global _gesture
+    if _editor is None:
+        return
+    x, y = _mouse()
+    tracks = _tracks()
+    row = int((y - _RULER_H) // _TRACK_H)
+    if y < _RULER_H or not 0 <= row < len(tracks):
+        _editor.seek(max(0, x / _px_per_sec))
+        return
+    for clip in reversed(_clips):
+        if (clip.track == tracks[row]
+                and clip.timeline_start <= x / _px_per_sec <= clip.timeline_end):
+            _editor.select(clip.id)
+            _editor.playback.pause()
+            mode = "move"
+            if abs(x - clip.timeline_start * _px_per_sec) <= 6:
+                mode = "left"
+            elif abs(x - clip.timeline_end * _px_per_sec) <= 6:
+                mode = "right"
+            _gesture = (replace(clip), x, tracks[0], mode)
+            return
+    _editor.seek(max(0, x / _px_per_sec))
+
+
+def _drag():
+    if _gesture is None or _editor is None:
+        return
+    clip, origin_x, highest, mode = _gesture
+    x, y = _mouse()
+    fps = _editor.project.timeline.fps
+    delta = round((x - origin_x) / _px_per_sec * fps) / fps
+    start = clip.timeline_start
+    if mode == "move":
+        start = max(0, round((start + delta) * fps) / fps)
+        track = max(0, min(99, highest + 1, highest - int((y - _RULER_H) // _TRACK_H)))
+        changes = {"timeline_start": start, "track": track}
+    elif mode == "left":
+        limit = start if isinstance(clip, ImageClip) else min(start, clip.source_start)
+        delta = max(-limit, min(delta, clip.duration - 1 / fps))
+        start += delta
+        changes = {"timeline_start": start}
+        if isinstance(clip, ImageClip):
+            changes["display_duration"] = clip.duration - delta
+        else:
+            changes["source_start"] = clip.source_start + delta
+    else:
+        delta = max(1 / fps - clip.duration, delta)
+        if isinstance(clip, ImageClip):
+            changes = {"display_duration": clip.duration + delta}
+        else:
+            end = min(clip.media.duration or clip.source_end, clip.source_end + delta)
+            changes = {"source_end": end}
+    current = _editor.selected
+    if current is None or all(getattr(current, k) == v for k, v in changes.items()):
+        return
+    try:
+        _editor.update_clip(clip.id, position=start, **changes)
+    except ValueError as exc:
+        if _on_error:
+            _on_error(str(exc))
+
+
+def _release():
+    global _gesture
+    _gesture = None
 
 
 # ── Zoom ──────────────────────────────────────────────────────────────────────
@@ -129,7 +239,7 @@ def _zoom_out() -> None:
 # ── Taille ────────────────────────────────────────────────────────────────────
 
 def _content_height() -> int:
-    return _RULER_H + max(1, len(_clips)) * _TRACK_H
+    return _RULER_H + len(_tracks()) * _TRACK_H
 
 
 def _content_width() -> int:
@@ -151,8 +261,6 @@ def _redraw() -> None:
         return
     dpg.delete_item(_DRAWLIST_TAG, children_only=True)
     _update_headers()
-    if not _clips:
-        return
     w = _content_width()
     dpg.configure_item(_DRAWLIST_TAG, width=w, height=_content_height())
     _draw_ruler(w)
@@ -164,17 +272,11 @@ def _update_headers() -> None:
     if not dpg.does_item_exist(_HEADERS_TAG):
         return
     dpg.delete_item(_HEADERS_TAG, children_only=True)
-    dpg.add_spacer(height=_RULER_H + 2, parent=_HEADERS_TAG)
-    for i, clip in enumerate(_clips):
-        with dpg.child_window(
-            height=_TRACK_H,
-            width=-1,
-            border=False,
-            no_scrollbar=True,
-            parent=_HEADERS_TAG,
-        ):
-            dpg.add_spacer(height=_TRACK_H // 2 - 10)
-            dpg.add_text(f"Vidéo {i + 1}", indent=8)
+    labels = dpg.add_drawlist(width=_HEADER_W - 20, height=_content_height(), parent=_HEADERS_TAG)
+    for row, track in enumerate(_tracks()):
+        dpg.draw_text((0, _RULER_H + row * _TRACK_H + _TRACK_H // 2 - 7),
+                      f"Piste {track + 1}", size=13, parent=labels)
+    dpg.set_y_scroll(_HEADERS_TAG, dpg.get_y_scroll(_SCROLL_TAG))
 
 
 def _draw_ruler(total_w: int) -> None:
@@ -218,7 +320,9 @@ def _draw_clips() -> None:
     clip_h = _TRACK_H - 8
     th_w = int(clip_h * THUMB_W / THUMB_H)
 
-    for i, clip in enumerate(_clips):
+    tracks = _tracks()
+    for clip in _clips:
+        i = tracks.index(clip.track)
         clip_y = _RULER_H + i * _TRACK_H + 4
         x = int(clip.timeline_start * _px_per_sec)
         w = max(2, int(clip.duration * _px_per_sec))
@@ -226,7 +330,9 @@ def _draw_clips() -> None:
         dpg.draw_rectangle(
             (x, clip_y), (x + w, clip_y + clip_h),
             fill=_COLOR_CLIP_FILL,
-            color=_COLOR_CLIP_BORDER,
+            color=((255, 190, 65, 255) if _editor and _editor.selected_id == clip.id
+                   else _COLOR_CLIP_BORDER),
+            thickness=2,
             parent=_DRAWLIST_TAG,
         )
 
@@ -243,7 +349,7 @@ def _draw_clips() -> None:
         if w >= 40:
             dpg.draw_text(
                 (x + 5, clip_y + clip_h // 2 - 6),
-                clip.media.path.stem,
+                clip.media.path.stem[:max(1, (w - 10) // 7)],
                 color=_COLOR_CLIP_TEXT,
                 size=12,
                 parent=_DRAWLIST_TAG,

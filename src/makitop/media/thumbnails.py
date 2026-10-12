@@ -5,6 +5,7 @@ from pathlib import Path
 import av
 import numpy as np
 from PIL import Image as PilImage
+from PIL import ImageOps
 
 from makitop.model.media import Media, MediaKind
 
@@ -45,7 +46,7 @@ def _from_video(path: Path) -> list[float]:
 def _from_image(path: Path) -> list[float]:
     try:
         with PilImage.open(path) as img:
-            return _pil_to_texture(img)
+            return _pil_to_texture(ImageOps.exif_transpose(img))
     except Exception:
         pass
     return _placeholder()

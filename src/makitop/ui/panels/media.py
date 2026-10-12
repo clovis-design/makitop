@@ -139,7 +139,7 @@ def create(
         min_size=[1, 1],
     ):
         dpg.add_menu_item(
-            label="Ajouter à la timeline",
+            label="Ajouter à la composition (nouvelle piste)",
             callback=_on_context_add_to_timeline,
         )
     with dpg.child_window(tag=TAG, border=False):
@@ -278,7 +278,7 @@ def _on_media_clicked(sender, app_data) -> None:
 def _on_media_right_clicked(sender, app_data) -> None:
     global _right_clicked_media
     media = dpg.get_item_user_data(app_data[1])
-    if not isinstance(media, Media) or media.kind is not MediaKind.VIDEO:
+    if not isinstance(media, Media) or media.kind not in (MediaKind.VIDEO, MediaKind.IMAGE):
         return
     _right_clicked_media = media
     dpg.configure_item(_CONTEXT_MENU_TAG, show=True, pos=list(dpg.get_mouse_pos()))
@@ -287,6 +287,7 @@ def _on_media_right_clicked(sender, app_data) -> None:
 def _on_context_add_to_timeline() -> None:
     if _right_clicked_media is not None and _on_add_to_timeline is not None:
         _on_add_to_timeline(_right_clicked_media)
+        dpg.hide_item(_CONTEXT_MENU_TAG)
 
 
 def show_section(key: str) -> None:
@@ -411,6 +412,9 @@ def _append(media: Media, cols: int) -> None:
 
     item_tag = f"media_item_{media.id}"
     dpg.add_group(tag=item_tag, parent=_current_row_tag)
+    if media.kind in (MediaKind.VIDEO, MediaKind.IMAGE):
+        with dpg.drag_payload(parent=item_tag, drag_data=media.id, payload_type="MAKITOP_MEDIA"):
+            dpg.add_text(f"Ajouter : {media.name}")
 
     draw_tag = f"media_draw_{media.id}"
     dpg.add_drawlist(

@@ -1,62 +1,77 @@
-# Lecture du montage
+# Composition et lecture du montage
 
-## Utilisation
+## Placer plusieurs vidéos et photos dans le cadre
 
-1. Importer puis sélectionner une vidéo : sa prévisualisation source s'affiche.
-2. Dans la timeline, régler les points d'entrée/sortie en secondes et cliquer
-   **Ajouter la portion**. Elle est ajoutée à la fin du montage.
-3. **Voir le montage** bascule de la source vers la timeline. Play/Pause/Stop
-   s'appliquent au mode indiqué au-dessus de la preview.
-4. Déplacer le curseur puis **Couper au curseur**. La découpe est arrondie à
-   l'image du montage la plus proche (30 i/s par défaut).
-5. Sélectionner un clip dans la liste et le supprimer pour refermer son espace.
-6. Enregistrer le projet : les clips sont conservés dans le format `.makitop` v2.
-   Les projets v1 restent lisibles avec une timeline vide.
+1. Importer les médias. Un clic sur une miniature ouvre sa prévisualisation source.
+2. Glisser une miniature dans le cadre, ou utiliser son menu contextuel
+   **Ajouter à la composition (nouvelle piste)**. Chaque ajout crée un calque
+   sur une nouvelle piste, à la position actuelle du montage (à 0 s depuis le
+   mode source). Une photo reçoit initialement une durée de 5 secondes.
+3. Choisir **16:9**, **9:16** ou **1:1** au-dessus du cadre.
+4. Cliquer sur un calque pour le sélectionner. Le déplacer en faisant glisser
+   son intérieur ; tirer les poignées des coins pour le redimensionner en
+   conservant ses proportions. On peut ainsi placer plusieurs médias côte à côte.
+5. Cocher **Recadrer** et déplacer les poignées au milieu des bords pour rogner
+   la source. Le recadrage ne déforme pas l'image et reste réversible : tirer
+   les bords vers l'extérieur pour retrouver la partie masquée.
+6. **Réinitialiser taille / recadrage** replace le média entier dans le cadre.
 
-## Architecture
+Les images transparentes (par exemple un PNG) conservent leur transparence.
+Les parties situées hors du cadre sont coupées à l'affichage.
 
-- `model/timeline.py` : une piste vidéo sans chevauchement, portions sources,
-  positions montage, découpe et suppression non destructives.
-- `engine/timeline.py` : conversion temps montage → temps source, décodage PyAV,
-  respect des timestamps sources (y compris les cadences différentes), adaptation
-  à 640×360 avec conservation du rapport d'aspect et noir pour les espaces vides.
-- `engine/cache.py` : LRU de 64 Mio pour les images rendues. Clés fondées sur
-  l'identité/stat du fichier, le temps source et la résolution. Une modification
-  de cut ne réutilise pas l'image d'un ancien temps source. Le cache est volatil.
-- `application/timeline_playback.py` : instantané du projet, horloge monotone,
-  worker unique propriétaire des décodeurs, anticipation de 8 images, jusqu'à
-  3 décodeurs ouverts. Un seek écarte les anciennes requêtes ; aucun worker ne
-  met à jour Dear PyGui. En cas de retard, la dernière image prête et due est
-  affichée ; le compteur conserve la vitesse du montage. À la fin, la lecture
-  s'arrête sur la dernière image. Stop et seek actualisent aussi l'image en pause.
-- `ui/panels/timeline/` : commandes et liste des clips, curseur de montage.
+## Pistes, durée et ordre des calques
 
-La lecture source utilise le même moteur via une timeline temporaire d'un clip.
-Le bouton **Play** lit également la première piste audio de la vidéo sur la sortie
-audio par défaut. **Pause**, **Stop**, le changement de source et les seeks
-interrompent la sortie et invalident les anciens buffers. Une vidéo muette ou un
-espace vide dans le montage produit du silence.
+- Les pistes hautes sont au premier plan ; **Piste 1** est le fond.
+- Dans la timeline, déplacer un clip horizontalement change son début ; le
+  déplacer verticalement change sa piste. Tirer ses bords ajuste sa durée et,
+  pour une vidéo, les points d'entrée/sortie de la source.
+- Les propriétés permettent également de régler la piste, le début du clip,
+  l'entrée/sortie vidéo ou la durée d'une photo. Valider les champs avec Entrée.
+- **Devant / Derrière** échange la piste sélectionnée avec la piste adjacente.
+- Cliquer dans la règle ou utiliser le curseur **Position (s)** déplace la lecture.
+- Cliquer sur un clip absent à la position courante place la lecture à son début.
+- **Supprimer le calque** retire uniquement le clip sélectionné ; les autres
+  clips conservent leurs positions temporelles.
 
-- `engine/audio.py` : décodage PyAV séquentiel, rééchantillonnage stéréo à 48 kHz,
-  correspondance temps montage / portions sources et silence hors des clips.
+## Lecture et son
+
+**Voir le montage** revient à la composition après la prévisualisation d'une
+source. **Play / Pause / Stop** contrôlent l'image et le son du mode affiché.
+La manipulation à la souris met la lecture en pause pour faciliter l'édition.
+
+Les pistes audio des vidéos actives sont mélangées. Sélectionner chaque vidéo
+pour régler son **Volume (%)** entre 0 et 200 %, ou cocher **Muet**. Le mélange
+est limité à la plage de sortie audio ; diminuer les volumes si plusieurs sons
+forts saturent ensemble. Les photos, vidéos muettes et espaces vides sont silencieux.
+
+Sur Debian/Ubuntu, sounddevice utilise la bibliothèque système PortAudio :
+
+```bash
+sudo apt-get install libportaudio2
+```
+
+## Sauvegarde et architecture
+
+Le format `.makitop` v3 conserve le format du cadre, la cadence, les pistes,
+positions, tailles, recadrages, volumes et états muets. Les projets v1 et les
+deux variantes historiques du format v2 restent lisibles.
+
+- `model/composition.py` : géométrie normalisée, ajustement sans déformation,
+  déplacement, redimensionnement et recadrage.
+- `application/composition.py` : édition du projet, sélection, bascule
+  source/montage et actualisation des instantanés du lecteur.
+- `engine/timeline.py` : composition des vidéos et images actives du fond vers
+  le premier plan, transparence, découpe au cadre et cache mémoire borné.
+- `engine/audio.py` : décodage PyAV, stéréo à 48 kHz, un décodeur par occurrence
+  audio active, volume par clip et sommation des pistes.
+- `application/timeline_playback.py` : horloge monotone, instantané du projet,
+  décodage vidéo hors UI et anticipation des images. Un seek invalide les requêtes
+  obsolètes ; la fin du montage conserve la dernière image.
 - `playback/audio.py` : préchargement borné à environ 0,5 seconde sur un thread
-  dédié et sortie `sounddevice` (PortAudio). Le callback ne décode rien et suit
-  l'horloge vidéo avec compensation de la latence de sortie. En cas de retard,
-  les échantillons manquants sont silencieux plutôt que décalés. Une erreur du
-  périphérique est remontée dans l'interface et la vidéo peut continuer.
+  dédié, sortie sounddevice avec compensation de latence. Le callback audio ne
+  décode rien ; un retard de décodage produit du silence plutôt qu'un décalage.
+- `ui/panels/preview.py`, `properties.py` et `timeline/` : interactions souris,
+  réglages et pistes. Les workers ne modifient pas l'interface.
 
-Les anciens `PlaybackController`/`Player` restent disponibles pour leurs appels
-existants mais ne pilotent plus la boucle graphique principale.
-
-## Périmètre et extensions
-
-Cette version est une preview **vidéo avec audio**, sans mixage multipiste, effets ni
-export. Le cache d'images sert la relecture et les seeks ; il n'est pas un cache
-disque persistant de segments encodés et ne garantit pas le temps réel pour une
-source plus lourde que les capacités de décodage de la machine.
-
-Pour ajouter les effets, leur description et leur version devront entrer dans
-la clé du cache après composition. Pour un cache de segments lourds, ajouter un
-planificateur de rendu, l'invalidation des intervalles dépendants (transitions
-comprises), et la lecture des segments produits. Le mixage audio et les réglages
-de volume par clip restent des extensions possibles.
+Le cache reste en mémoire et ne garantit pas le temps réel pour des sources ou
+un nombre de calques dépassant les capacités de décodage de la machine.
