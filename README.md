@@ -10,6 +10,13 @@ Prérequis : [uv](https://docs.astral.sh/uv/). uv installe lui-même Python 3.12
 uv sync
 ```
 
+La sortie audio utilise **sounddevice**, qui s'appuie sur **PortAudio**. Sur
+Debian/Ubuntu, installer également la bibliothèque système :
+
+```bash
+sudo apt-get install libportaudio2
+```
+
 ## Lancer l'application
 
 ```bash
