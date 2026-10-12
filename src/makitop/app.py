@@ -73,6 +73,11 @@ def main() -> None:
         session.mark_dirty()
         timeline_panel.add_clip(clip)
 
+    def _on_clip_deleted(clip) -> None:
+        session.project.timeline.remove_clip(clip.id)
+        session.mark_dirty()
+        show_montage()
+
     def refresh_project_media() -> None:
         preview.clear()
         timeline_panel.clear()
@@ -109,6 +114,7 @@ def main() -> None:
         home.create(on_new=project_file.new_project, on_open=project_file.open_dialog)
         import_media.create(on_files_selected=importer.import_files)
         timeline_panel.bind_seek(playback_controller.seek)
+        timeline_panel.bind_delete(_on_clip_deleted)
         show_montage()
         project_file.create(session)
 

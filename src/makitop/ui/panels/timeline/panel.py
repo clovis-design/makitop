@@ -20,6 +20,7 @@ _SCROLL_TAG = "timeline_scroll"
 _DRAWLIST_TAG = "timeline_drawlist"
 _HANDLER_TAG = "timeline_resize_handler"
 _STATIC_LAYER = "timeline_static_layer"
+_PLAYHEAD_LAYER = "timeline_playhead_layer"
 _CURSOR_LAYER = "timeline_cursor_layer"
 
 # ── Dimensions ────────────────────────────────────────────────────────────────
@@ -47,17 +48,19 @@ _COLOR_CURSOR = (255, 255, 255, 55)
 # ── État ──────────────────────────────────────────────────────────────────────
 _clips: list[MediaClip] = []
 _playhead_sec: float = 0.0
-_on_seek = None  # Callable[[float], None]
+_on_seek = None    # Callable[[float], None]
+_on_delete = None  # Callable[[MediaClip], None]
 _dragging: bool = False
 
 
 def create() -> None:
-    global _zoom_idx, _px_per_sec, _clips, _playhead_sec, _dragging
+    global _zoom_idx, _px_per_sec, _clips, _playhead_sec, _dragging, _on_delete
     _zoom_idx = _DEFAULT_ZOOM_IDX
     _px_per_sec = _ZOOM_LEVELS[_DEFAULT_ZOOM_IDX]
     _clips = []
     _playhead_sec = 0.0
     _dragging = False
+    _on_delete = None
 
     with dpg.item_handler_registry(tag=_HANDLER_TAG):
         dpg.add_item_resize_handler(callback=_on_resize)
@@ -95,6 +98,7 @@ def create() -> None:
                     height=_content_height(),
                 )
                 dpg.add_draw_layer(tag=_STATIC_LAYER, parent=_DRAWLIST_TAG)
+                dpg.add_draw_layer(tag=_PLAYHEAD_LAYER, parent=_DRAWLIST_TAG)
                 dpg.add_draw_layer(tag=_CURSOR_LAYER, parent=_DRAWLIST_TAG)
 
     dpg.bind_item_handler_registry(TAG, _HANDLER_TAG)
@@ -115,10 +119,15 @@ def bind_seek(fn) -> None:
     _on_seek = fn
 
 
+def bind_delete(fn) -> None:
+    global _on_delete
+    _on_delete = fn
+
+
 def set_playhead(seconds: float) -> None:
     global _playhead_sec
     _playhead_sec = seconds
-    _redraw()
+    _redraw_playhead()
 
 
 # ── Tick (appelé chaque frame) ────────────────────────────────────────────────
@@ -208,6 +217,13 @@ def _redraw() -> None:
     dpg.configure_item(_DRAWLIST_TAG, width=w, height=_content_height())
     _draw_ruler(w)
     _draw_clips()
+    _redraw_playhead()
+
+
+def _redraw_playhead() -> None:
+    if not dpg.does_item_exist(_PLAYHEAD_LAYER):
+        return
+    dpg.delete_item(_PLAYHEAD_LAYER, children_only=True)
     _draw_playhead()
 
 
@@ -216,7 +232,7 @@ def _update_headers() -> None:
         return
     dpg.delete_item(_HEADERS_TAG, children_only=True)
     dpg.add_spacer(height=_RULER_H + 2, parent=_HEADERS_TAG)
-    for i, clip in enumerate(_clips):
+    for clip in _clips:
         with dpg.child_window(
             height=_TRACK_H,
             width=-1,
@@ -224,9 +240,61 @@ def _update_headers() -> None:
             no_scrollbar=True,
             parent=_HEADERS_TAG,
         ):
-            dpg.add_spacer(height=_TRACK_H // 2 - 10)
+            dpg.add_spacer(height=4)
             label = _truncate(clip.media.path.stem, _HEADER_W - 16)
             dpg.add_text(label, indent=8)
+            dpg.add_spacer(height=2)
+            dpg.add_button(
+                label="×",
+                width=20,
+                height=20,
+                indent=8,
+                callback=_on_delete_btn,
+                user_data=clip,
+            )
+
+
+def _on_delete_btn(sender, app_data, clip: MediaClip) -> None:
+    _confirm_delete(clip)
+
+
+def _confirm_delete(clip: MediaClip) -> None:
+    dialog_tag = "timeline_confirm_delete"
+    if dpg.does_item_exist(dialog_tag):
+        dpg.delete_item(dialog_tag)
+
+    label = clip.media.path.stem
+    with dpg.window(
+        tag=dialog_tag,
+        label="Confirmer la suppression",
+        modal=True,
+        no_resize=True,
+        width=320,
+        height=110,
+        pos=(600, 300),
+    ):
+        dpg.add_text(f'Supprimer « {label} » de la timeline ?')
+        dpg.add_spacer(height=8)
+        with dpg.group(horizontal=True):
+            dpg.add_button(
+                label="Supprimer",
+                width=100,
+                callback=lambda: _do_delete(clip, dialog_tag),
+            )
+            dpg.add_button(
+                label="Annuler",
+                width=80,
+                callback=lambda: dpg.delete_item(dialog_tag),
+            )
+
+
+def _do_delete(clip: MediaClip, dialog_tag: str) -> None:
+    dpg.delete_item(dialog_tag)
+    if clip in _clips:
+        _clips.remove(clip)
+    if _on_delete is not None:
+        _on_delete(clip)
+    _redraw()
 
 
 def _draw_ruler(total_w: int) -> None:
@@ -309,13 +377,13 @@ def _draw_playhead() -> None:
         (x - 6, 0), (x + 6, 0), (x, 10),
         fill=_COLOR_PLAYHEAD,
         color=(0, 0, 0, 0),
-        parent=_STATIC_LAYER,
+        parent=_PLAYHEAD_LAYER,
     )
     dpg.draw_line(
         (x, 0), (x, total_h),
         color=_COLOR_PLAYHEAD,
         thickness=2,
-        parent=_STATIC_LAYER,
+        parent=_PLAYHEAD_LAYER,
     )
 
 
