@@ -175,7 +175,8 @@ def _update_headers() -> None:
             parent=_HEADERS_TAG,
         ):
             dpg.add_spacer(height=_TRACK_H // 2 - 10)
-            dpg.add_text(f"Vidéo {i + 1}", indent=8)
+            label = _truncate(clip.media.path.stem, _HEADER_W - 16)
+            dpg.add_text(label, indent=8)
 
 
 def _draw_ruler(total_w: int) -> None:
@@ -273,3 +274,12 @@ def _format_time(seconds: int) -> str:
     if m:
         return f"{m}:{s:02}"
     return f"{s}s"
+
+
+def _truncate(text: str, max_px: float) -> str:
+    if dpg.get_text_size(text)[0] <= max_px:
+        return text
+    ellipsis = "…"
+    while text and dpg.get_text_size(text + ellipsis)[0] > max_px:
+        text = text[:-1]
+    return (text + ellipsis) if text else ellipsis
