@@ -6,6 +6,11 @@ from makitop.media.thumbnails import THUMB_H, THUMB_W
 from makitop.model.timeline import MediaClip
 
 TAG = "timeline_panel"
+CURSOR = "timeline_cursor"
+CLIPS = "timeline_clips"
+IN = "timeline_source_in"
+OUT = "timeline_source_out"
+SELECTION = "timeline_selection"
 
 # ── Tags ──────────────────────────────────────────────────────────────────────
 _TOOLBAR_TAG = "timeline_toolbar"

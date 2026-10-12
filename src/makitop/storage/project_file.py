@@ -1,6 +1,6 @@
 """Lecture et écriture des fichiers de projet `.makitop` (JSON).
 
-Format (version 2) :
+Format (version 2 ; lecture des anciens projets version 1 conservée) :
 
     {
       "format": "makitop",
@@ -45,7 +45,6 @@ def save(project: Project, path: Path) -> None:
     """Écrit le projet. L'écriture passe par un fichier temporaire : un plantage
     pendant la sauvegarde ne corrompt pas le fichier existant."""
     path = Path(path)
-    media_index = {m.id: m for m in project.media}
     data = {
         "format": FORMAT,
         "version": VERSION,

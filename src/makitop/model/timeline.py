@@ -53,12 +53,20 @@ class ImageClip(BaseClip):
 @dataclass
 class Timeline:
     clips: list[BaseClip] = field(default_factory=list)
+    fps: int = 30
 
     @property
     def duration(self) -> float:
         if not self.clips:
             return 0.0
         return max(c.timeline_end for c in self.clips)
+
+    def clip_at(self, position: float) -> BaseClip | None:
+        return next(
+            (c for c in self.clips
+             if c.timeline_start - 1e-9 <= position < c.timeline_end - 1e-9),
+            None,
+        )
 
     def add_clip(self, clip: BaseClip) -> None:
         self.clips.append(clip)
