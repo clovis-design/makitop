@@ -12,26 +12,43 @@ class PlaybackController:
 
     def load(self, path: Path):
         """Charge une vidéo à l'arrêt ; conserve la précédente en cas d'échec."""
+
         decoder = MediaDecoder()
+
         try:
             decoder.open(path)
+
             frame = decoder.get_first_frame()
+
             if frame is None:
-                raise ValueError("La vidéo ne contient aucune image lisible.")
+                raise ValueError(
+                    "La vidéo ne contient aucune image lisible."
+                )
+
             duration = decoder.get_duration()
+
         except Exception:
             decoder.close()
             raise
+
+        # On ferme l'ancienne vidéo seulement si
+        # la nouvelle vidéo a bien été chargée.
         self.close()
+
         self.decoder = decoder
-        self.player = Player(Renderer(decoder))
+        self.player = Player(
+            Renderer(decoder)
+        )
+
         return frame, duration
 
     def close(self) -> None:
         if self.player is not None:
             self.player.stop()
+
         if self.decoder is not None:
             self.decoder.close()
+
         self.player = None
         self.decoder = None
 
@@ -52,7 +69,25 @@ class PlaybackController:
             self.player.seek(position)
 
     def current_time(self) -> float:
-        return self.player.current_time() if self.player is not None else 0.0
+        if self.player is None:
+            return 0.0
+
+        return self.player.current_time()
 
     def current_frame(self):
-        return self.player.current_frame() if self.player is not None else None
+        if self.player is None:
+            return None
+
+        return self.player.current_frame()
+
+    def next_frame(self):
+        if self.player is None:
+            return None
+
+        return self.player.next_frame()
+
+    def is_playing(self) -> bool:
+        if self.player is None:
+            return False
+
+        return self.player.is_playing()

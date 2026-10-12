@@ -1,15 +1,17 @@
-"""Projet de montage. Pour l'instant, il ne contient que les médias importés."""
+"""Projet de montage : ressources importées et timeline non destructive."""
 
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from makitop.model.media import Media
+from makitop.model.timeline import Timeline
 
 
 @dataclass
 class Project:
     name: str = "Sans titre"
     media: list[Media] = field(default_factory=list)
+    timeline: Timeline = field(default_factory=Timeline)
 
     def find_media(self, path: Path) -> Media | None:
         target = path.resolve()
