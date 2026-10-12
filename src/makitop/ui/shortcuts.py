@@ -32,6 +32,7 @@ SHORTCUTS: dict[str, Shortcut] = {
     menu_bar.SAVE_PROJECT: Shortcut(dpg.mvKey_S, "S"),
     menu_bar.SAVE_PROJECT_AS: Shortcut(dpg.mvKey_S, "S", shift=True),
     menu_bar.IMPORT_MEDIA: Shortcut(dpg.mvKey_I, "I"),
+    menu_bar.CLOSE_PROJECT: Shortcut(dpg.mvKey_W, "W"),
     menu_bar.QUIT: Shortcut(dpg.mvKey_Q, "Q"),
 }
 
