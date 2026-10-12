@@ -27,8 +27,8 @@ _TRACK_H = 60       # hauteur d'une piste
 _MIN_CONTENT_W = 800
 
 # ── Zoom ──────────────────────────────────────────────────────────────────────
-_ZOOM_LEVELS = [1, 5, 10, 25, 50, 75, 100, 150, 200, 300, 400]
-_DEFAULT_ZOOM_IDX = 6  # 100 px/s par défaut
+_ZOOM_LEVELS = [1, 3, 5, 8, 10, 15, 25, 35, 50, 65, 75, 100, 125, 150, 175, 200, 250, 300, 350, 400]
+_DEFAULT_ZOOM_IDX = 11  # 100 px/s par défaut
 _zoom_idx: int = _DEFAULT_ZOOM_IDX
 _px_per_sec: int = _ZOOM_LEVELS[_DEFAULT_ZOOM_IDX]
 
@@ -133,10 +133,11 @@ def _content_height() -> int:
 
 
 def _content_width() -> int:
+    scroll_w = dpg.get_item_rect_size(_SCROLL_TAG)[0] if dpg.does_item_exist(_SCROLL_TAG) else 0
     if not _clips:
-        return _MIN_CONTENT_W
+        return max(_MIN_CONTENT_W, scroll_w)
     max_end = max(c.timeline_end for c in _clips)
-    return max(_MIN_CONTENT_W, int(max_end * _px_per_sec) + 200)
+    return max(_MIN_CONTENT_W, scroll_w, int(max_end * _px_per_sec) + 200)
 
 
 def _on_resize() -> None:
