@@ -45,6 +45,7 @@ _lock = threading.Lock()
 _on_selected: Callable[[Media], None] | None = None
 _on_add_media: Callable[[], None] | None = None
 _on_add_to_timeline: Callable[[Media], None] | None = None
+_on_delete_media: Callable[[Media], None] | None = None
 _right_clicked_media: Media | None = None
 _active_filter: MediaKind | None = None
 _filter_active_theme: int = 0
@@ -52,6 +53,8 @@ _search_query: str = ""
 _sort_key: str = "import"
 
 _ADD_BUTTON_TAG = "media_add_button"
+_CTX_ADD_TO_TIMELINE_TAG = "media_ctx_add_to_timeline"
+_CTX_DELETE_TAG = "media_ctx_delete"
 _TITLE_ROW_TAG = "media_title_row"
 _TITLE_SPACER_TAG = "media_title_spacer"
 _GRID_TAG = "media_imports_grid"
@@ -91,10 +94,11 @@ def create(
     on_add_to_timeline: Callable[[Media], None] | None = None,
 ) -> None:
     global _medias, _current_cols, _current_row_tag, _item_count, _on_selected, _on_add_media
-    global _active_filter, _filter_active_theme, _search_query, _sort_key, _on_add_to_timeline
+    global _active_filter, _filter_active_theme, _search_query, _sort_key, _on_add_to_timeline, _on_delete_media
     _on_selected = on_selected
     _on_add_media = on_add_media
     _on_add_to_timeline = on_add_to_timeline
+    _on_delete_media = None
     _medias = []
     _current_cols = 0
     _current_row_tag = None
@@ -137,8 +141,15 @@ def create(
         min_size=[1, 1],
     ):
         dpg.add_menu_item(
+            tag=_CTX_ADD_TO_TIMELINE_TAG,
             label="Ajouter à la timeline",
             callback=_on_context_add_to_timeline,
+        )
+        dpg.add_separator()
+        dpg.add_menu_item(
+            tag=_CTX_DELETE_TAG,
+            label="Supprimer",
+            callback=_on_context_delete,
         )
     with dpg.child_window(tag=TAG, border=False):
         dpg.bind_item_theme(TAG, "media_panel_theme")
@@ -274,15 +285,65 @@ def _on_media_clicked(sender, app_data) -> None:
 def _on_media_right_clicked(sender, app_data) -> None:
     global _right_clicked_media
     media = dpg.get_item_user_data(app_data[1])
-    if not isinstance(media, Media) or media.kind is not MediaKind.VIDEO:
+    if not isinstance(media, Media):
         return
     _right_clicked_media = media
+    is_video = media.kind is MediaKind.VIDEO
+    if dpg.does_item_exist(_CTX_ADD_TO_TIMELINE_TAG):
+        dpg.configure_item(_CTX_ADD_TO_TIMELINE_TAG, show=is_video)
     dpg.configure_item(_CONTEXT_MENU_TAG, show=True, pos=list(dpg.get_mouse_pos()))
 
 
 def _on_context_add_to_timeline() -> None:
     if _right_clicked_media is not None and _on_add_to_timeline is not None:
         _on_add_to_timeline(_right_clicked_media)
+
+
+def _on_context_delete() -> None:
+    if _right_clicked_media is None:
+        return
+    _confirm_delete_media(_right_clicked_media)
+
+
+def _confirm_delete_media(media: Media) -> None:
+    dialog_tag = "media_confirm_delete"
+    if dpg.does_item_exist(dialog_tag):
+        dpg.delete_item(dialog_tag)
+
+    label = media.path.stem
+    with dpg.window(
+        tag=dialog_tag,
+        label="Confirmer la suppression",
+        modal=True,
+        no_resize=True,
+        width=360,
+        height=120,
+        pos=(580, 300),
+    ):
+        dpg.add_text(f'Supprimer « {label} » et tous ses clips de la timeline ?')
+        dpg.add_spacer(height=8)
+        with dpg.group(horizontal=True):
+            dpg.add_button(
+                label="Supprimer",
+                width=100,
+                callback=lambda: _do_delete_media(media, dialog_tag),
+            )
+            dpg.add_button(
+                label="Annuler",
+                width=80,
+                callback=lambda: dpg.delete_item(dialog_tag),
+            )
+
+
+def _do_delete_media(media: Media, dialog_tag: str) -> None:
+    dpg.delete_item(dialog_tag)
+    if _on_delete_media is not None:
+        _on_delete_media(media)
+
+
+def bind_delete_media(fn: Callable[[Media], None]) -> None:
+    global _on_delete_media
+    _on_delete_media = fn
 
 
 def show_section(key: str) -> None:

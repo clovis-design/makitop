@@ -78,6 +78,17 @@ def main() -> None:
         session.mark_dirty()
         show_montage()
 
+    def _on_media_deleted(media) -> None:
+        session.project.media = [m for m in session.project.media if m.id != media.id]
+        clips_to_remove = [
+            c for c in session.project.timeline.clips
+            if isinstance(c, MediaClip) and c.media.id == media.id
+        ]
+        for clip in clips_to_remove:
+            session.project.timeline.remove_clip(clip.id)
+        session.mark_dirty()
+        refresh_project_media()
+
     def refresh_project_media() -> None:
         preview.clear()
         timeline_panel.clear()
@@ -115,6 +126,7 @@ def main() -> None:
         import_media.create(on_files_selected=importer.import_files)
         timeline_panel.bind_seek(playback_controller.seek)
         timeline_panel.bind_delete(_on_clip_deleted)
+        media_panel.bind_delete_media(_on_media_deleted)
         show_montage()
         project_file.create(session)
 
