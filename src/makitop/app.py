@@ -38,7 +38,7 @@ def main() -> None:
         playback_controller.set_project(session.project, position)
         preview.clear()
         preview.initFinalTime(playback_controller.duration)
-        dpg.set_value("preview_mode", "Montage — vidéo sans audio")
+        dpg.set_value("preview_mode", "Montage")
 
     def select_media(media: Media) -> None:
         if media.kind is not MediaKind.VIDEO:
@@ -57,7 +57,10 @@ def main() -> None:
         playback_controller.set_project(temp_project)
         preview.clear()
         preview.initFinalTime(media.duration)
-        dpg.set_value("preview_mode", "Source — vidéo sans audio")
+        dpg.set_value(
+            "preview_mode",
+            "Source — vidéo avec audio" if media.has_audio else "Source — vidéo sans audio",
+        )
 
     def on_add_to_timeline(media: Media) -> None:
         if media.duration is None:

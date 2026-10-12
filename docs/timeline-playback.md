@@ -32,12 +32,25 @@
 - `ui/panels/timeline/` : commandes et liste des clips, curseur de montage.
 
 La lecture source utilise le même moteur via une timeline temporaire d'un clip.
+Le bouton **Play** lit également la première piste audio de la vidéo sur la sortie
+audio par défaut. **Pause**, **Stop**, le changement de source et les seeks
+interrompent la sortie et invalident les anciens buffers. Une vidéo muette ou un
+espace vide dans le montage produit du silence.
+
+- `engine/audio.py` : décodage PyAV séquentiel, rééchantillonnage stéréo à 48 kHz,
+  correspondance temps montage / portions sources et silence hors des clips.
+- `playback/audio.py` : préchargement borné à environ 0,5 seconde sur un thread
+  dédié et sortie `sounddevice` (PortAudio). Le callback ne décode rien et suit
+  l'horloge vidéo avec compensation de la latence de sortie. En cas de retard,
+  les échantillons manquants sont silencieux plutôt que décalés. Une erreur du
+  périphérique est remontée dans l'interface et la vidéo peut continuer.
+
 Les anciens `PlaybackController`/`Player` restent disponibles pour leurs appels
 existants mais ne pilotent plus la boucle graphique principale.
 
 ## Périmètre et extensions
 
-Cette version est une preview **vidéo sans audio**, à une piste, sans effets ni
+Cette version est une preview **vidéo avec audio**, sans mixage multipiste, effets ni
 export. Le cache d'images sert la relecture et les seeks ; il n'est pas un cache
 disque persistant de segments encodés et ne garantit pas le temps réel pour une
 source plus lourde que les capacités de décodage de la machine.
@@ -45,5 +58,5 @@ source plus lourde que les capacités de décodage de la machine.
 Pour ajouter les effets, leur description et leur version devront entrer dans
 la clé du cache après composition. Pour un cache de segments lourds, ajouter un
 planificateur de rendu, l'invalidation des intervalles dépendants (transitions
-comprises), et la lecture des segments produits. L'audio nécessite son décodage,
-son mixage, sa sortie et une synchronisation sur l'horloge de sortie audio.
+comprises), et la lecture des segments produits. Le mixage audio et les réglages
+de volume par clip restent des extensions possibles.

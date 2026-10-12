@@ -5,12 +5,14 @@ from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 
 from makitop.engine.timeline import TimelineRenderer
+from makitop.playback.audio import AudioPlayer
 from makitop.playback.clock import PlaybackClock
 
 
 class TimelinePlaybackController:
-    def __init__(self, renderer=None):
+    def __init__(self, renderer=None, audio=None):
         self.renderer = renderer or TimelineRenderer()
+        self.audio = audio if audio is not None else AudioPlayer()
         self.clock = PlaybackClock()
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="timeline")
         self.project = None
@@ -28,6 +30,7 @@ class TimelinePlaybackController:
         self.displayed = None
 
     def set_project(self, project, position=0.0):
+        self.audio.stop()
         self.clock.stop()
         self._discard()
         # Le worker ne doit jamais observer une timeline en cours de modification.
@@ -35,23 +38,29 @@ class TimelinePlaybackController:
         self.seek(position)
 
     def play(self):
-        if self.duration > 0:
+        if self.duration > 0 and not self.is_playing():
             if self.current_time() >= self.duration:
                 self.seek(0)
             self.clock.play()
+            self.audio.start(self.project, self.clock)
 
     def pause(self):
         self.clock.pause()
+        self.audio.stop()
 
     def stop(self):
         self.clock.stop()
+        self.audio.stop()
         self._discard()
 
     def seek(self, position):
         if not math.isfinite(position):
             raise ValueError("Position invalide.")
+        self.audio.stop()
         self.clock.seek(max(0.0, min(position, self.duration)))
         self._discard()
+        if self.is_playing():
+            self.audio.start(self.project, self.clock)
 
     def current_time(self):
         return min(self.clock.current_time(), self.duration)
@@ -63,9 +72,10 @@ class TimelinePlaybackController:
         """Renvoie seulement l'image due, jamais une image anticipée ou obsolète."""
         if self.project is None:
             return None
+        self.audio.check_error()
         fps = self.project.timeline.fps
         if self.clock.playing and self.clock.current_time() >= self.duration:
-            self.clock.pause()
+            self.pause()
             self.clock.seek(self.duration)
         last = max(0, math.ceil(self.duration * fps - 1e-9) - 1)
         index = min(int(self.current_time() * fps), last)
@@ -100,6 +110,7 @@ class TimelinePlaybackController:
 
     def close(self):
         self.clock.stop()
+        self.audio.close()
         self._discard()
         self.executor.shutdown(wait=True, cancel_futures=True)
         self.renderer.close()

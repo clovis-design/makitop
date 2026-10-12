@@ -7,7 +7,8 @@ timeline vidéo non destructive. La timeline permet l'ajout de portions, la déc
 et la suppression avec fermeture de l'espace. Le décodage est exécuté dans un
 worker, avec préchargement et cache mémoire borné. Voir
 [Lecture du montage](timeline-playback.md) pour l'utilisation, les composants
-implémentés et les limites actuelles (notamment l'absence de sortie audio).
+implémentés et les limites actuelles. La sortie audio utilise sounddevice/PortAudio,
+avec décodage PyAV sur un thread dédié et synchronisation sur l'horloge du lecteur.
 `app.py` assemble les composants et gère la boucle graphique. Les modules listés
 ci-dessous décrivent aussi des extensions futures, pas toutes implémentées.
 
