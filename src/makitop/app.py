@@ -6,17 +6,16 @@ from concurrent.futures import Executor, ThreadPoolExecutor
 import dearpygui.dearpygui as dpg
 
 from makitop import __version__
+from makitop.application.composition import CompositionEditor
 from makitop.application.media import MediaImporter
 from makitop.application.projects import ProjectSession
 from makitop.application.timeline_playback import TimelinePlaybackController
-from makitop.model.media import Media, MediaKind
-from makitop.model.project import Project
-from makitop.model.timeline import MediaClip, Timeline
+from makitop.model.media import Media
 from makitop.storage.recent import RecentProjects, config_dir
 from makitop.ui import home, main_window, menu_bar, screens
 from makitop.ui.dialogs import import_media, message, project_file
 from makitop.ui.panels import media as media_panel
-from makitop.ui.panels import preview
+from makitop.ui.panels import preview, properties
 from makitop.ui.panels import timeline as timeline_panel
 
 TITLE = f"Makitop {__version__}"
@@ -33,59 +32,37 @@ def main() -> None:
     executor = ThreadPoolExecutor(thread_name_prefix="makitop")
     importer = MediaImporter(lambda: session.project, executor)
     playback_controller = TimelinePlaybackController()
+    editor = CompositionEditor(session, playback_controller)
 
-    def show_montage(position: float = 0.0) -> None:
-        playback_controller.set_project(session.project, position)
-        preview.clear()
-        preview.initFinalTime(playback_controller.duration)
-        dpg.set_value("preview_mode", "Montage")
+    def refresh_editor():
+        preview.refresh()
+        properties.refresh()
+        timeline_panel.refresh()
+
+    def composition_error(text):
+        message.show("Composition", text)
 
     def select_media(media: Media) -> None:
-        if media.kind is not MediaKind.VIDEO:
-            message.show("Lecteur vidéo", "Sélectionnez un média vidéo pour le lire.")
-            return
-        if not media.duration or media.duration <= 0:
-            message.show("Lecture impossible", "Cette vidéo n'a pas de durée exploitable.")
-            return
-        temp_clip = MediaClip(
-            timeline_start=0.0,
-            media=media,
-            source_start=0.0,
-            source_end=media.duration,
-        )
-        temp_project = Project(media=[media], timeline=Timeline(clips=[temp_clip]))
-        playback_controller.set_project(temp_project)
-        preview.clear()
-        preview.initFinalTime(media.duration)
-        dpg.set_value(
-            "preview_mode",
-            "Source — vidéo avec audio" if media.has_audio else "Source — vidéo sans audio",
-        )
+        try:
+            editor.preview_source(media)
+        except ValueError as exc:
+            composition_error(str(exc))
 
     def on_add_to_timeline(media: Media) -> None:
-        if media.duration is None:
-            return
-        project = session.project
-        clip = MediaClip(
-            timeline_start=project.timeline.duration,
-            media=media,
-            source_start=0.0,
-            source_end=media.duration,
-        )
-        project.timeline.add_clip(clip)
-        session.mark_dirty()
-        timeline_panel.add_clip(clip)
+        try:
+            editor.add_media(media)
+        except ValueError as exc:
+            composition_error(str(exc))
 
     def refresh_project_media() -> None:
         preview.clear()
         timeline_panel.clear()
         _show_project_media(session, executor)
-        for clip in session.project.timeline.clips:
-            if isinstance(clip, MediaClip):
-                timeline_panel.add_clip(clip)
-        show_montage()
+        editor.selected_id = None
+        editor.show_montage(0)
 
     def show_home() -> None:
+        playback_controller.pause()
         screens.show_home()
         _refresh_title_and_projects(session)
 
@@ -111,7 +88,11 @@ def main() -> None:
         )
         home.create(on_new=project_file.new_project, on_open=project_file.open_dialog)
         import_media.create(on_files_selected=importer.import_files)
-        show_montage()
+        preview.bind(editor, composition_error)
+        properties.bind(editor, composition_error)
+        timeline_panel.bind(editor, composition_error)
+        editor.on_refresh = refresh_editor
+        editor.show_montage(0)
         project_file.create(session)
 
         importer.on_failed(import_media.show_error)
@@ -141,7 +122,7 @@ def main() -> None:
 
             current_time = playback_controller.current_time()
             preview.update_time(current_time)
-            timeline_panel.set_playhead(current_time)
+            timeline_panel.set_playhead(0 if editor.source_mode else current_time)
 
             try:
                 frame = playback_controller.poll()

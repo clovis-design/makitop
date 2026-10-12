@@ -3,12 +3,14 @@
 ## État actuel
 
 L'application Dear PyGui importe les médias, enregistre les projets et lit une
-timeline vidéo non destructive. La timeline permet l'ajout de portions, la découpe
-et la suppression avec fermeture de l'espace. Le décodage est exécuté dans un
-worker, avec préchargement et cache mémoire borné. Voir
+composition multipiste non destructive. Les vidéos et photos se placent, se
+redimensionnent et se recadrent dans un cadre 16:9, 9:16 ou 1:1. La timeline règle
+leurs positions et durées ; les pistes déterminent leur ordre de superposition.
+Le décodage est exécuté hors UI, avec préchargement et cache mémoire borné. Voir
 [Lecture du montage](timeline-playback.md) pour l'utilisation, les composants
 implémentés et les limites actuelles. La sortie audio utilise sounddevice/PortAudio,
-avec décodage PyAV sur un thread dédié et synchronisation sur l'horloge du lecteur.
+avec décodage PyAV sur un thread dédié, mixage et volume par clip, et synchronisation
+sur l'horloge du lecteur.
 `app.py` assemble les composants et gère la boucle graphique. Les modules listés
 ci-dessous décrivent aussi des extensions futures, pas toutes implémentées.
 

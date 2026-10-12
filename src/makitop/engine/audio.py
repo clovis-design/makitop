@@ -60,13 +60,15 @@ class AudioDecoder:
 
 class TimelineAudioRenderer:
     def __init__(self):
-        self.decoder = None
-        self.path = None
+        self.decoders = {}
+
+    @property
+    def decoder(self):
+        return next(iter(self.decoders.values()), None)
 
     def render(self, project, start, count):
         result = np.zeros((count, 2), dtype=np.float32)
-        # Même priorité que Timeline.clip_at en cas de chevauchement.
-        occupied = np.zeros(count, dtype=bool)
+        active = set()
         for clip in project.timeline.clips:
             clip_start = round(clip.timeline_start * SAMPLE_RATE)
             left = max(start, clip_start)
@@ -74,19 +76,20 @@ class TimelineAudioRenderer:
             if right <= left:
                 continue
             region = slice(left - start, right - start)
-            if isinstance(clip, MediaClip) and clip.media.has_audio:
-                if self.path != clip.media.path:
-                    self.close()
-                    self.decoder = AudioDecoder(clip.media.path)
-                    self.path = clip.media.path
+            if (isinstance(clip, MediaClip) and clip.media.has_audio
+                    and not clip.muted and clip.volume > 0):
+                # Deux occurrences de la même source peuvent jouer à des temps différents.
+                active.add(clip.id)
+                if clip.id not in self.decoders:
+                    self.decoders[clip.id] = AudioDecoder(clip.media.path)
                 source = round(clip.source_start * SAMPLE_RATE) + left - clip_start
-                samples = self.decoder.read(source, right - left)
-                np.copyto(result[region], samples, where=~occupied[region, None])
-            occupied[region] = True
-        return result
+                samples = self.decoders[clip.id].read(source, right - left)
+                result[region] += samples * clip.volume
+        for clip_id in set(self.decoders) - active:
+            self.decoders.pop(clip_id).close()
+        return np.clip(result, -1, 1, out=result)
 
     def close(self):
-        if self.decoder is not None:
-            self.decoder.close()
-        self.decoder = None
-        self.path = None
+        for decoder in self.decoders.values():
+            decoder.close()
+        self.decoders.clear()

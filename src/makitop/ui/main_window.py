@@ -87,3 +87,4 @@ def resize(width: int, height: int) -> None:
         (timeline.TAG, layout.timeline),
     ):
         dpg.configure_item(tag, width=size.width, height=size.height)
+    preview.resize(layout.preview.width, layout.preview.height)

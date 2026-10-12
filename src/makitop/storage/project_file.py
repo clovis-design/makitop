@@ -1,11 +1,13 @@
 """Lecture et écriture des fichiers de projet `.makitop` (JSON).
 
-Format (version 2 ; lecture des anciens projets version 1 conservée) :
+Format (version 3 ; lecture des anciens projets versions 1 et 2 conservée) :
 
     {
       "format": "makitop",
-      "version": 2,
+      "version": 3,
       "name": "Mon film",
+      "canvas_format": "16:9",
+      "fps": 30,
       "media": [{"type": "video", "path": "rushs/plage.mp4", "id": "...", ...}],
       "timeline": [
         {
@@ -26,15 +28,17 @@ restent absolus.
 
 import json
 import os
+from dataclasses import asdict
 from pathlib import Path
 
+from makitop.model.composition import Transform
 from makitop.model.media import Media, MediaKind
 from makitop.model.project import Project
 from makitop.model.timeline import BaseClip, ImageClip, MediaClip, Timeline
 
 EXTENSION = ".makitop"
 FORMAT = "makitop"
-VERSION = 2
+VERSION = 3
 
 
 class ProjectFileError(Exception):
@@ -51,6 +55,8 @@ def save(project: Project, path: Path) -> None:
         "name": project.name,
         "media": [_media_to_dict(m, path.parent) for m in project.media],
         "timeline": [_clip_to_dict(c) for c in project.timeline.clips],
+        "fps": project.timeline.fps,
+        "canvas_format": project.canvas_format,
     }
     tmp = path.with_name(path.name + ".tmp")
     try:
@@ -83,14 +89,21 @@ def load(path: Path) -> Project:
     try:
         media = [_media_from_dict(m, path.parent) for m in data.get("media", [])]
         media_index = {m.id: m for m in media}
-        clips = [_clip_from_dict(c, media_index) for c in data.get("timeline", [])]
-    except (KeyError, TypeError, ValueError) as error:
+        raw = data.get("timeline", [])
+        fps = data.get("fps", 30)
+        # Les premières versions v2 utilisaient {fps, clips} et source_in/source_out.
+        if isinstance(raw, dict):
+            fps = raw.get("fps", 30)
+            raw = [dict(c, clip_type="media", source_start=c["source_in"],
+                        source_end=c["source_out"]) for c in raw.get("clips", [])]
+        clips = [_clip_from_dict(c, media_index) for c in raw]
+        return Project(
+            name=str(data.get("name") or path.stem), media=media,
+            timeline=Timeline(clips=clips, fps=fps),
+            canvas_format=data.get("canvas_format", "16:9"),
+        )
+    except (AttributeError, KeyError, TypeError, ValueError) as error:
         raise ProjectFileError(f"Projet corrompu : {path.name}") from error
-    return Project(
-        name=str(data.get("name") or path.stem),
-        media=media,
-        timeline=Timeline(clips=clips),
-    )
 
 
 def _media_to_dict(media: Media, project_dir: Path) -> dict:
@@ -117,6 +130,10 @@ def _media_from_dict(data: dict, project_dir: Path) -> Media:
 
 
 def _clip_to_dict(clip: BaseClip) -> dict:
+    common = {
+        "track": clip.track, "transform": asdict(clip.transform),
+        "volume": clip.volume, "muted": clip.muted,
+    }
     if isinstance(clip, MediaClip):
         return {
             "clip_type": "media",
@@ -125,6 +142,7 @@ def _clip_to_dict(clip: BaseClip) -> dict:
             "media_id": clip.media.id,
             "source_start": clip.source_start,
             "source_end": clip.source_end,
+            **common,
         }
     if isinstance(clip, ImageClip):
         return {
@@ -133,6 +151,7 @@ def _clip_to_dict(clip: BaseClip) -> dict:
             "timeline_start": clip.timeline_start,
             "media_id": clip.media.id,
             "display_duration": clip.display_duration,
+            **common,
         }
     raise ValueError(f"Type de clip inconnu : {type(clip)}")
 
@@ -140,6 +159,11 @@ def _clip_to_dict(clip: BaseClip) -> dict:
 def _clip_from_dict(data: dict, media_index: dict[str, Media]) -> BaseClip:
     clip_type = data["clip_type"]
     media = media_index[data["media_id"]]
+    common = {
+        "track": data.get("track", 0),
+        "transform": Transform(**data.get("transform", {})),
+        "volume": float(data.get("volume", 1)), "muted": bool(data.get("muted", False)),
+    }
     if clip_type == "media":
         return MediaClip(
             timeline_start=float(data["timeline_start"]),
@@ -147,6 +171,7 @@ def _clip_from_dict(data: dict, media_index: dict[str, Media]) -> BaseClip:
             source_start=float(data["source_start"]),
             source_end=float(data["source_end"]),
             id=data["id"],
+            **common,
         )
     if clip_type == "image":
         return ImageClip(
@@ -154,6 +179,7 @@ def _clip_from_dict(data: dict, media_index: dict[str, Media]) -> BaseClip:
             media=media,
             display_duration=float(data["display_duration"]),
             id=data["id"],
+            **common,
         )
     raise ValueError(f"Type de clip inconnu : {clip_type!r}")
 

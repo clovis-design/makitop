@@ -23,6 +23,17 @@ sudo apt-get install libportaudio2
 uv run makitop
 ```
 
+## Composer plusieurs médias
+
+Glisser une vidéo ou une photo depuis les médias vers le cadre de prévisualisation.
+Chaque ajout crée une nouvelle piste. Déplacer le calque à la souris, tirer ses
+coins pour le redimensionner, ou activer **Recadrer** pour rogner ses bords.
+Le format du cadre (16:9, 9:16, 1:1) se choisit au-dessus de la composition.
+
+La timeline règle la position et la durée des clips ; le panneau **Propriétés**
+permet de changer leur ordre, leur volume ou de les rendre muets.
+Voir le [guide de composition et de lecture](docs/timeline-playback.md).
+
 ## Tests et qualité
 
 ```bash

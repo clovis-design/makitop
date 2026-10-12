@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from makitop.model.composition import FORMATS
 from makitop.model.media import Media
 from makitop.model.timeline import Timeline
 
@@ -12,6 +13,16 @@ class Project:
     name: str = "Sans titre"
     media: list[Media] = field(default_factory=list)
     timeline: Timeline = field(default_factory=Timeline)
+    canvas_format: str = "16:9"
+
+    def __post_init__(self):
+        if self.canvas_format not in FORMATS:
+            raise ValueError("Format de composition inconnu.")
+
+    @property
+    def canvas_ratio(self):
+        width, height = FORMATS[self.canvas_format]
+        return width / height
 
     def find_media(self, path: Path) -> Media | None:
         target = path.resolve()
@@ -27,6 +38,9 @@ class Project:
         for index, current in enumerate(self.media):
             if current.id == media.id:
                 self.media[index] = media
+                for clip in self.timeline.clips:
+                    if clip.media.id == media.id:
+                        clip.media = media
                 return
         raise KeyError(media.id)
 
