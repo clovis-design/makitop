@@ -19,6 +19,8 @@ _HEADERS_TAG = "timeline_headers"
 _SCROLL_TAG = "timeline_scroll"
 _DRAWLIST_TAG = "timeline_drawlist"
 _HANDLER_TAG = "timeline_resize_handler"
+_STATIC_LAYER = "timeline_static_layer"
+_CURSOR_LAYER = "timeline_cursor_layer"
 
 # ── Dimensions ────────────────────────────────────────────────────────────────
 _HEADER_W = 130     # largeur colonne labels (gauche, fixe)
@@ -40,18 +42,22 @@ _COLOR_CLIP_FILL = (50, 110, 170, 210)
 _COLOR_CLIP_BORDER = (90, 150, 210, 255)
 _COLOR_CLIP_TEXT = (220, 225, 235, 255)
 _COLOR_PLAYHEAD = (210, 60, 60, 255)
+_COLOR_CURSOR = (255, 255, 255, 55)
 
 # ── État ──────────────────────────────────────────────────────────────────────
 _clips: list[MediaClip] = []
 _playhead_sec: float = 0.0
+_on_seek = None  # Callable[[float], None]
+_dragging: bool = False
 
 
 def create() -> None:
-    global _zoom_idx, _px_per_sec, _clips, _playhead_sec
+    global _zoom_idx, _px_per_sec, _clips, _playhead_sec, _dragging
     _zoom_idx = _DEFAULT_ZOOM_IDX
     _px_per_sec = _ZOOM_LEVELS[_DEFAULT_ZOOM_IDX]
     _clips = []
     _playhead_sec = 0.0
+    _dragging = False
 
     with dpg.item_handler_registry(tag=_HANDLER_TAG):
         dpg.add_item_resize_handler(callback=_on_resize)
@@ -88,6 +94,8 @@ def create() -> None:
                     width=_MIN_CONTENT_W,
                     height=_content_height(),
                 )
+                dpg.add_draw_layer(tag=_STATIC_LAYER, parent=_DRAWLIST_TAG)
+                dpg.add_draw_layer(tag=_CURSOR_LAYER, parent=_DRAWLIST_TAG)
 
     dpg.bind_item_handler_registry(TAG, _HANDLER_TAG)
 
@@ -102,10 +110,52 @@ def clear() -> None:
     _redraw()
 
 
+def bind_seek(fn) -> None:
+    global _on_seek
+    _on_seek = fn
+
+
 def set_playhead(seconds: float) -> None:
     global _playhead_sec
     _playhead_sec = seconds
     _redraw()
+
+
+# ── Tick (appelé chaque frame) ────────────────────────────────────────────────
+
+def tick() -> None:
+    """Met à jour le curseur hover et gère le seek par clic/drag."""
+    global _dragging
+    if not dpg.does_item_exist(_DRAWLIST_TAG) or not dpg.does_item_exist(_CURSOR_LAYER):
+        return
+
+    hovered = dpg.is_item_hovered(_DRAWLIST_TAG)
+    btn_down = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
+
+    if hovered and btn_down:
+        _dragging = True
+    if not btn_down:
+        _dragging = False
+
+    if hovered or _dragging:
+        mouse_x = dpg.get_mouse_pos(local=False)[0]
+        dl_x = dpg.get_item_rect_min(_DRAWLIST_TAG)[0]
+        local_x = mouse_x - dl_x
+
+        if _dragging and _on_seek is not None:
+            _on_seek(max(0.0, local_x / _px_per_sec))
+
+        dpg.delete_item(_CURSOR_LAYER, children_only=True)
+        if hovered and local_x >= 0:
+            total_h = _content_height()
+            dpg.draw_line(
+                (local_x, 0), (local_x, total_h),
+                color=_COLOR_CURSOR,
+                thickness=1,
+                parent=_CURSOR_LAYER,
+            )
+    else:
+        dpg.delete_item(_CURSOR_LAYER, children_only=True)
 
 
 # ── Zoom ──────────────────────────────────────────────────────────────────────
@@ -148,9 +198,9 @@ def _on_resize() -> None:
 # ── Dessin ────────────────────────────────────────────────────────────────────
 
 def _redraw() -> None:
-    if not dpg.does_item_exist(_DRAWLIST_TAG):
+    if not dpg.does_item_exist(_STATIC_LAYER):
         return
-    dpg.delete_item(_DRAWLIST_TAG, children_only=True)
+    dpg.delete_item(_STATIC_LAYER, children_only=True)
     _update_headers()
     if not _clips:
         return
@@ -184,7 +234,7 @@ def _draw_ruler(total_w: int) -> None:
         (0, 0), (total_w, _RULER_H),
         fill=_COLOR_RULER_BG,
         color=(0, 0, 0, 0),
-        parent=_DRAWLIST_TAG,
+        parent=_STATIC_LAYER,
     )
     # Espacement adaptatif : évite de surcharger la règle à faible zoom
     if _px_per_sec >= 50:
@@ -203,7 +253,7 @@ def _draw_ruler(total_w: int) -> None:
         dpg.draw_line(
             (x, _RULER_H - tick_h), (x, _RULER_H),
             color=_COLOR_TICK,
-            parent=_DRAWLIST_TAG,
+            parent=_STATIC_LAYER,
         )
         if is_major:
             dpg.draw_text(
@@ -211,7 +261,7 @@ def _draw_ruler(total_w: int) -> None:
                 _format_time(s),
                 color=_COLOR_TICK_LABEL,
                 size=11,
-                parent=_DRAWLIST_TAG,
+                parent=_STATIC_LAYER,
             )
         s += minor_step
 
@@ -229,7 +279,7 @@ def _draw_clips() -> None:
             (x, clip_y), (x + w, clip_y + clip_h),
             fill=_COLOR_CLIP_FILL,
             color=_COLOR_CLIP_BORDER,
-            parent=_DRAWLIST_TAG,
+            parent=_STATIC_LAYER,
         )
 
         texture_tag = f"texture_{clip.media.id}"
@@ -239,7 +289,7 @@ def _draw_clips() -> None:
                 texture_tag,
                 (x, clip_y),
                 (x + img_w, clip_y + clip_h),
-                parent=_DRAWLIST_TAG,
+                parent=_STATIC_LAYER,
             )
 
         if w >= 40:
@@ -248,7 +298,7 @@ def _draw_clips() -> None:
                 clip.media.path.stem,
                 color=_COLOR_CLIP_TEXT,
                 size=12,
-                parent=_DRAWLIST_TAG,
+                parent=_STATIC_LAYER,
             )
 
 
@@ -259,13 +309,13 @@ def _draw_playhead() -> None:
         (x - 6, 0), (x + 6, 0), (x, 10),
         fill=_COLOR_PLAYHEAD,
         color=(0, 0, 0, 0),
-        parent=_DRAWLIST_TAG,
+        parent=_STATIC_LAYER,
     )
     dpg.draw_line(
         (x, 0), (x, total_h),
         color=_COLOR_PLAYHEAD,
         thickness=2,
-        parent=_DRAWLIST_TAG,
+        parent=_STATIC_LAYER,
     )
 
 

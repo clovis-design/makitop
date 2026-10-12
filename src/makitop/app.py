@@ -108,6 +108,7 @@ def main() -> None:
         )
         home.create(on_new=project_file.new_project, on_open=project_file.open_dialog)
         import_media.create(on_files_selected=importer.import_files)
+        timeline_panel.bind_seek(playback_controller.seek)
         show_montage()
         project_file.create(session)
 
@@ -139,6 +140,7 @@ def main() -> None:
             current_time = playback_controller.current_time()
             preview.update_time(current_time)
             timeline_panel.set_playhead(current_time)
+            timeline_panel.tick()
 
             try:
                 frame = playback_controller.poll()
