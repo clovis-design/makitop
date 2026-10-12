@@ -126,6 +126,7 @@ def main() -> None:
         import_media.create(on_files_selected=importer.import_files)
         timeline_panel.bind_seek(playback_controller.seek)
         timeline_panel.bind_delete(_on_clip_deleted)
+        timeline_panel.bind_clip_moved(lambda _: (session.mark_dirty(), show_montage()))
         media_panel.bind_delete_media(_on_media_deleted)
         show_montage()
         project_file.create(session)

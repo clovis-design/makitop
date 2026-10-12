@@ -41,6 +41,7 @@ _COLOR_TICK = (120, 120, 130, 255)
 _COLOR_TICK_LABEL = (170, 170, 180, 255)
 _COLOR_CLIP_FILL = (50, 110, 170, 210)
 _COLOR_CLIP_BORDER = (90, 150, 210, 255)
+_COLOR_CLIP_SELECTED = (255, 200, 60, 255)
 _COLOR_CLIP_TEXT = (220, 225, 235, 255)
 _COLOR_PLAYHEAD = (210, 60, 60, 255)
 _COLOR_CURSOR = (255, 255, 255, 55)
@@ -48,19 +49,28 @@ _COLOR_CURSOR = (255, 255, 255, 55)
 # ── État ──────────────────────────────────────────────────────────────────────
 _clips: list[MediaClip] = []
 _playhead_sec: float = 0.0
-_on_seek = None    # Callable[[float], None]
-_on_delete = None  # Callable[[MediaClip], None]
+_on_seek = None       # Callable[[float], None]
+_on_delete = None     # Callable[[MediaClip], None]
+_on_clip_moved = None # Callable[[MediaClip], None]
 _dragging: bool = False
+_drag_clip: MediaClip | None = None
+_drag_offset_px: float = 0.0
+_selected_clip: MediaClip | None = None
 
 
 def create() -> None:
-    global _zoom_idx, _px_per_sec, _clips, _playhead_sec, _dragging, _on_delete
+    global _zoom_idx, _px_per_sec, _clips, _playhead_sec
+    global _dragging, _drag_clip, _drag_offset_px, _selected_clip, _on_delete, _on_clip_moved
     _zoom_idx = _DEFAULT_ZOOM_IDX
     _px_per_sec = _ZOOM_LEVELS[_DEFAULT_ZOOM_IDX]
     _clips = []
     _playhead_sec = 0.0
     _dragging = False
+    _drag_clip = None
+    _drag_offset_px = 0.0
+    _selected_clip = None
     _on_delete = None
+    _on_clip_moved = None
 
     with dpg.item_handler_registry(tag=_HANDLER_TAG):
         dpg.add_item_resize_handler(callback=_on_resize)
@@ -124,6 +134,11 @@ def bind_delete(fn) -> None:
     _on_delete = fn
 
 
+def bind_clip_moved(fn) -> None:
+    global _on_clip_moved
+    _on_clip_moved = fn
+
+
 def set_playhead(seconds: float) -> None:
     global _playhead_sec
     _playhead_sec = seconds
@@ -133,38 +148,72 @@ def set_playhead(seconds: float) -> None:
 # ── Tick (appelé chaque frame) ────────────────────────────────────────────────
 
 def tick() -> None:
-    """Met à jour le curseur hover et gère le seek par clic/drag."""
-    global _dragging
+    global _dragging, _drag_clip, _drag_offset_px, _selected_clip
     if not dpg.does_item_exist(_DRAWLIST_TAG) or not dpg.does_item_exist(_CURSOR_LAYER):
         return
 
     hovered = dpg.is_item_hovered(_DRAWLIST_TAG)
     btn_down = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
+    active = _dragging or _drag_clip is not None
 
-    if hovered and btn_down:
-        _dragging = True
+    # Relâchement du bouton
     if not btn_down:
+        if _drag_clip is not None:
+            if _on_clip_moved is not None:
+                _on_clip_moved(_drag_clip)
+            _drag_clip = None
         _dragging = False
 
-    if hovered or _dragging:
-        mouse_x = dpg.get_mouse_pos(local=False)[0]
-        dl_x = dpg.get_item_rect_min(_DRAWLIST_TAG)[0]
-        local_x = mouse_x - dl_x
+    if hovered or active:
+        mx, my = dpg.get_mouse_pos(local=False)
+        dl_min = dpg.get_item_rect_min(_DRAWLIST_TAG)
+        local_x = mx - dl_min[0]
+        local_y = my - dl_min[1]
 
-        if _dragging and _on_seek is not None:
+        # Début d'un drag (premier frame avec bouton enfoncé, pas encore actif)
+        if hovered and btn_down and not active:
+            clip = _clip_at(local_x, local_y)
+            if clip is not None:
+                _drag_clip = clip
+                _drag_offset_px = local_x - clip.timeline_start * _px_per_sec
+                if _selected_clip is not clip:
+                    _selected_clip = clip
+                    _redraw_static_only()
+            else:
+                _selected_clip = None
+                _dragging = True
+
+        # Drag d'un clip
+        if _drag_clip is not None and btn_down:
+            _drag_clip.timeline_start = max(0.0, (local_x - _drag_offset_px) / _px_per_sec)
+            _redraw_static_only()
+
+        # Seek drag (pas de clip sous le curseur)
+        elif _dragging and btn_down and _on_seek is not None:
             _on_seek(max(0.0, local_x / _px_per_sec))
 
+        # Curseur hover (uniquement hors drag de clip)
         dpg.delete_item(_CURSOR_LAYER, children_only=True)
-        if hovered and local_x >= 0:
-            total_h = _content_height()
+        if hovered and _drag_clip is None and local_x >= 0:
             dpg.draw_line(
-                (local_x, 0), (local_x, total_h),
+                (local_x, 0), (local_x, _content_height()),
                 color=_COLOR_CURSOR,
                 thickness=1,
                 parent=_CURSOR_LAYER,
             )
     else:
         dpg.delete_item(_CURSOR_LAYER, children_only=True)
+
+
+def _clip_at(local_x: float, local_y: float) -> "MediaClip | None":
+    clip_h = _TRACK_H - 8
+    for i, clip in enumerate(_clips):
+        clip_y = _RULER_H + i * _TRACK_H + 4
+        x = clip.timeline_start * _px_per_sec
+        w = max(2.0, clip.duration * _px_per_sec)
+        if x <= local_x <= x + w and clip_y <= local_y <= clip_y + clip_h:
+            return clip
+    return None
 
 
 # ── Zoom ──────────────────────────────────────────────────────────────────────
@@ -218,6 +267,17 @@ def _redraw() -> None:
     _draw_ruler(w)
     _draw_clips()
     _redraw_playhead()
+
+
+def _redraw_static_only() -> None:
+    """Redessine règle + clips sans reconstruire les headers (utilisé pendant le drag)."""
+    if not dpg.does_item_exist(_STATIC_LAYER) or not _clips:
+        return
+    dpg.delete_item(_STATIC_LAYER, children_only=True)
+    w = _content_width()
+    dpg.configure_item(_DRAWLIST_TAG, width=w, height=_content_height())
+    _draw_ruler(w)
+    _draw_clips()
 
 
 def _redraw_playhead() -> None:
@@ -343,10 +403,12 @@ def _draw_clips() -> None:
         x = int(clip.timeline_start * _px_per_sec)
         w = max(2, int(clip.duration * _px_per_sec))
 
+        border = _COLOR_CLIP_SELECTED if clip is _selected_clip else _COLOR_CLIP_BORDER
         dpg.draw_rectangle(
             (x, clip_y), (x + w, clip_y + clip_h),
             fill=_COLOR_CLIP_FILL,
-            color=_COLOR_CLIP_BORDER,
+            color=border,
+            thickness=2 if clip is _selected_clip else 1,
             parent=_STATIC_LAYER,
         )
 
