@@ -56,11 +56,16 @@ _dragging: bool = False
 _drag_clip: MediaClip | None = None
 _drag_offset_px: float = 0.0
 _selected_clip: MediaClip | None = None
+_header_drag_row: int | None = None
+_header_drag_target: int | None = None
+_drop_indicator_theme: int = 0
 
 
 def create() -> None:
     global _zoom_idx, _px_per_sec, _clips, _playhead_sec
-    global _dragging, _drag_clip, _drag_offset_px, _selected_clip, _on_delete, _on_clip_moved
+    global _dragging, _drag_clip, _drag_offset_px, _selected_clip
+    global _header_drag_row, _header_drag_target, _drop_indicator_theme
+    global _on_delete, _on_clip_moved
     _zoom_idx = _DEFAULT_ZOOM_IDX
     _px_per_sec = _ZOOM_LEVELS[_DEFAULT_ZOOM_IDX]
     _clips = []
@@ -69,8 +74,14 @@ def create() -> None:
     _drag_clip = None
     _drag_offset_px = 0.0
     _selected_clip = None
+    _header_drag_row = None
+    _header_drag_target = None
     _on_delete = None
     _on_clip_moved = None
+
+    with dpg.theme() as _drop_indicator_theme:
+        with dpg.theme_component(dpg.mvChildWindow):
+            dpg.add_theme_color(dpg.mvThemeCol_ChildBg, (255, 200, 60, 220))
 
     with dpg.item_handler_registry(tag=_HANDLER_TAG):
         dpg.add_item_resize_handler(callback=_on_resize)
@@ -149,11 +160,12 @@ def set_playhead(seconds: float) -> None:
 
 def tick() -> None:
     global _dragging, _drag_clip, _drag_offset_px, _selected_clip
+    btn_down = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
+    _tick_header_drag(btn_down)
     if not dpg.does_item_exist(_DRAWLIST_TAG) or not dpg.does_item_exist(_CURSOR_LAYER):
         return
 
     hovered = dpg.is_item_hovered(_DRAWLIST_TAG)
-    btn_down = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
     active = _dragging or _drag_clip is not None
 
     # Relâchement du bouton
@@ -166,12 +178,15 @@ def tick() -> None:
 
     if hovered or active:
         mx, my = dpg.get_mouse_pos(local=False)
-        dl_min = dpg.get_item_rect_min(_DRAWLIST_TAG)
+        dl_state = dpg.get_item_state(_DRAWLIST_TAG)
+        if "rect_min" not in dl_state:
+            return
+        dl_min = dl_state["rect_min"]
         local_x = mx - dl_min[0]
         local_y = my - dl_min[1]
 
         # Début d'un drag (premier frame avec bouton enfoncé, pas encore actif)
-        if hovered and btn_down and not active:
+        if hovered and btn_down and not active and _header_drag_row is None:
             clip = _clip_at(local_x, local_y)
             if clip is not None:
                 _drag_clip = clip
@@ -203,6 +218,65 @@ def tick() -> None:
             )
     else:
         dpg.delete_item(_CURSOR_LAYER, children_only=True)
+
+
+def _tick_header_drag(btn_down: bool) -> None:
+    global _header_drag_row, _header_drag_target
+    import sys
+    exists = dpg.does_item_exist(_HEADERS_TAG)
+    state = dpg.get_item_state(_HEADERS_TAG) if exists else {}
+    print(f"[HDR] exists={exists} clips={len(_clips)} state_keys={list(state.keys())}", file=sys.stderr)
+    if not exists or not _clips:
+        return
+    if "rect_min" not in state:
+        return
+
+    mx, my = dpg.get_mouse_pos(local=False)
+    hd_min = state["rect_min"]
+    local_x = mx - hd_min[0]
+    local_y = my - hd_min[1]
+    print(f"[HDR] hd_min={hd_min} mouse=({mx:.0f},{my:.0f}) local=({local_x:.0f},{local_y:.0f})", file=sys.stderr)
+
+    # Offset du premier track (spacer _RULER_H + 2 dans _HEADERS_TAG)
+    track_top = _RULER_H + 2
+    over_tracks = 0 <= local_x <= _HEADER_W and local_y >= track_top
+
+    if not btn_down:
+        if _header_drag_row is not None:
+            saved_row, saved_target = _header_drag_row, _header_drag_target
+            _header_drag_row = None
+            _header_drag_target = None
+            if saved_target is not None:
+                _do_reorder(saved_row, saved_target)
+            else:
+                _update_headers()
+        return
+
+    # Début du drag : moitié supérieure de la ligne (zone titre, hors bouton ×)
+    row_y_offset = (local_y - track_top) % _TRACK_H if local_y >= track_top else -1
+    if over_tracks and row_y_offset < _TRACK_H // 2 and _header_drag_row is None and _drag_clip is None and not _dragging:
+        row = int((local_y - track_top) / _TRACK_H)
+        if 0 <= row < len(_clips):
+            _header_drag_row = row
+            _header_drag_target = row
+
+    if _header_drag_row is not None:
+        raw = int((local_y - track_top + _TRACK_H // 2) / _TRACK_H)
+        new_target = max(0, min(len(_clips), raw))
+        if new_target != _header_drag_target:
+            _header_drag_target = new_target
+            _update_headers()
+
+
+def _do_reorder(source: int, target: int) -> None:
+    insert_at = target if target <= source else target - 1
+    if insert_at == source:
+        return
+    clip = _clips.pop(source)
+    _clips.insert(insert_at, clip)
+    if _on_clip_moved is not None:
+        _on_clip_moved(clip)
+    _redraw()
 
 
 def _clip_at(local_x: float, local_y: float) -> "MediaClip | None":
@@ -292,7 +366,12 @@ def _update_headers() -> None:
         return
     dpg.delete_item(_HEADERS_TAG, children_only=True)
     dpg.add_spacer(height=_RULER_H + 2, parent=_HEADERS_TAG)
-    for clip in _clips:
+    for i, clip in enumerate(_clips):
+        if _header_drag_target == i:
+            _add_drop_indicator()
+        dragging_this = _header_drag_row == i
+        label_color = (150, 150, 160, 180) if dragging_this else None
+        handle_color = (180, 180, 190, 180) if dragging_this else (120, 120, 130, 200)
         with dpg.child_window(
             height=_TRACK_H,
             width=-1,
@@ -301,8 +380,10 @@ def _update_headers() -> None:
             parent=_HEADERS_TAG,
         ):
             dpg.add_spacer(height=4)
-            label = _truncate(clip.media.path.stem, _HEADER_W - 16)
-            dpg.add_text(label, indent=8)
+            with dpg.group(horizontal=True):
+                dpg.add_text("≡", indent=4, color=handle_color)
+                label = _truncate(clip.media.path.stem, _HEADER_W - 30)
+                dpg.add_text(label, color=label_color)
             dpg.add_spacer(height=2)
             dpg.add_button(
                 label="×",
@@ -312,6 +393,19 @@ def _update_headers() -> None:
                 callback=_on_delete_btn,
                 user_data=clip,
             )
+    if _header_drag_target == len(_clips):
+        _add_drop_indicator()
+
+
+def _add_drop_indicator() -> None:
+    with dpg.child_window(
+        height=4,
+        width=-1,
+        border=False,
+        no_scrollbar=True,
+        parent=_HEADERS_TAG,
+    ) as w:
+        dpg.bind_item_theme(w, _drop_indicator_theme)
 
 
 def _on_delete_btn(sender, app_data, clip: MediaClip) -> None:

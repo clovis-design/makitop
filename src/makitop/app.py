@@ -159,7 +159,6 @@ def main() -> None:
             current_time = playback_controller.current_time()
             preview.update_time(current_time)
             timeline_panel.set_playhead(current_time)
-            timeline_panel.tick()
 
             try:
                 frame = playback_controller.poll()
@@ -168,6 +167,8 @@ def main() -> None:
             except Exception as exc:
                 log.exception("Rendu impossible")
                 message.show("Lecture impossible", str(exc))
+
+            timeline_panel.tick()
 
             dpg.render_dearpygui_frame()
 
