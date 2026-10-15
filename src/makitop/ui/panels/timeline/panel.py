@@ -222,10 +222,8 @@ def tick() -> None:
 
 def _tick_header_drag(btn_down: bool) -> None:
     global _header_drag_row, _header_drag_target
-    import sys
     exists = dpg.does_item_exist(_HEADERS_TAG)
     state = dpg.get_item_state(_HEADERS_TAG) if exists else {}
-    print(f"[HDR] exists={exists} clips={len(_clips)} state_keys={list(state.keys())}", file=sys.stderr)
     if not exists or not _clips:
         return
     if "rect_min" not in state:
@@ -235,7 +233,6 @@ def _tick_header_drag(btn_down: bool) -> None:
     hd_min = state["rect_min"]
     local_x = mx - hd_min[0]
     local_y = my - hd_min[1]
-    print(f"[HDR] hd_min={hd_min} mouse=({mx:.0f},{my:.0f}) local=({local_x:.0f},{local_y:.0f})", file=sys.stderr)
 
     # Offset du premier track (spacer _RULER_H + 2 dans _HEADERS_TAG)
     track_top = _RULER_H + 2
