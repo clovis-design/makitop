@@ -30,7 +30,6 @@ def apply_global_style() -> None:
         with dpg.theme_component(dpg.mvAll):
             dpg.add_theme_color(dpg.mvThemeCol_Text, COLORS["text_main"])
             
-    # On lie ce thème uniquement à ROOT
     dpg.bind_item_theme(ROOT, main_theme)
 
 def setup_fonts() -> None:
