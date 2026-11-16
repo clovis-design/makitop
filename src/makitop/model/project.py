@@ -12,7 +12,7 @@ from makitop.model.timeline import Timeline
 class Project:
     name: str = "Sans titre"
     media: list[Media] = field(default_factory=list)
-    timeline: Timeline = field(default_factory=Timeline)
+    timeline: Timeline = field(default_factory=lambda: Timeline(fps=60))
     canvas_format: str = "16:9"
 
     def __post_init__(self):
