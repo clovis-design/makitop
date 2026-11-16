@@ -59,13 +59,14 @@ _selected_clip: MediaClip | None = None
 _header_drag_row: int | None = None
 _header_drag_target: int | None = None
 _drop_indicator_theme: int = 0
+_pending_fit_zoom: bool = False
 
 
 def create() -> None:
     global _zoom_idx, _px_per_sec, _clips, _playhead_sec
     global _dragging, _drag_clip, _drag_offset_px, _selected_clip
     global _header_drag_row, _header_drag_target, _drop_indicator_theme
-    global _on_delete, _on_clip_moved
+    global _on_delete, _on_clip_moved, _pending_fit_zoom
     _zoom_idx = _DEFAULT_ZOOM_IDX
     _px_per_sec = _ZOOM_LEVELS[_DEFAULT_ZOOM_IDX]
     _clips = []
@@ -78,6 +79,7 @@ def create() -> None:
     _header_drag_target = None
     _on_delete = None
     _on_clip_moved = None
+    _pending_fit_zoom = False
 
     with dpg.theme() as _drop_indicator_theme:
         with dpg.theme_component(dpg.mvChildWindow):
@@ -135,6 +137,35 @@ def clear() -> None:
     _redraw()
 
 
+def fit_zoom() -> None:
+    global _pending_fit_zoom
+    _pending_fit_zoom = True
+
+
+def _apply_fit_zoom() -> None:
+    global _zoom_idx, _px_per_sec, _pending_fit_zoom
+    if not _clips:
+        _pending_fit_zoom = False
+        return
+    total_duration = max(c.timeline_end for c in _clips)
+    if total_duration <= 0:
+        _pending_fit_zoom = False
+        return
+    available_w = 0
+    if dpg.does_item_exist(_SCROLL_TAG):
+        available_w = dpg.get_item_rect_size(_SCROLL_TAG)[0]
+    if available_w <= 32 and dpg.does_item_exist(TAG):
+        available_w = max(0, dpg.get_item_rect_size(TAG)[0] - _HEADER_W - 20)
+    if available_w <= 32:
+        return  # UI pas encore rendue — on retente au prochain frame
+    _pending_fit_zoom = False
+    ideal = available_w / total_duration
+    best = max((i for i, v in enumerate(_ZOOM_LEVELS) if v <= ideal), default=0)
+    _zoom_idx = best
+    _px_per_sec = _ZOOM_LEVELS[_zoom_idx]
+    _redraw()
+
+
 def bind_seek(fn) -> None:
     global _on_seek
     _on_seek = fn
@@ -160,6 +191,8 @@ def set_playhead(seconds: float) -> None:
 
 def tick() -> None:
     global _dragging, _drag_clip, _drag_offset_px, _selected_clip
+    if _pending_fit_zoom:
+        _apply_fit_zoom()
     btn_down = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
     _tick_header_drag(btn_down)
     if not dpg.does_item_exist(_DRAWLIST_TAG) or not dpg.does_item_exist(_CURSOR_LAYER):
@@ -222,15 +255,14 @@ def tick() -> None:
 
 def _tick_header_drag(btn_down: bool) -> None:
     global _header_drag_row, _header_drag_target
-    exists = dpg.does_item_exist(_HEADERS_TAG)
-    state = dpg.get_item_state(_HEADERS_TAG) if exists else {}
-    if not exists or not _clips:
-        return
-    if "rect_min" not in state:
+    if not dpg.does_item_exist(_HEADERS_TAG) or not _clips:
         return
 
     mx, my = dpg.get_mouse_pos(local=False)
-    hd_min = state["rect_min"]
+    hd_state = dpg.get_item_state(_HEADERS_TAG)
+    if "pos" not in hd_state:
+        return
+    hd_min = hd_state["pos"]
     local_x = mx - hd_min[0]
     local_y = my - hd_min[1]
 
