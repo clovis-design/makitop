@@ -5,13 +5,22 @@ import dearpygui.dearpygui as dpg
 from makitop.model.timeline import ImageClip
 
 TAG = "properties_panel"
+_NO_EFFECT = "Aucun effet : choisissez-en dans la section Effets."
+_HINT_COLOR = (150, 155, 175)
 _editor = None
 _on_error = None
+# (clip, suite des effets) affichée : la liste n'est reconstruite que si elle change,
+# pour ne pas interrompre le glissement d'un curseur.
+_shown_effects = None
+
+
+def effect_slider_tag(index: int) -> str:
+    return f"clip_effect_{index}"
 
 
 def create() -> None:
-    global _editor
-    _editor = None
+    global _editor, _shown_effects
+    _editor, _shown_effects = None, None
     with dpg.child_window(tag=TAG, border=False):
         dpg.add_text("Propriétés")
         dpg.add_separator()
@@ -40,6 +49,11 @@ def create() -> None:
                                      callback=lambda s, v: _update(volume=v / 100))
                 dpg.add_checkbox(label="Muet", tag="clip_muted",
                                  callback=lambda s, v: _update(muted=v))
+            with dpg.group(tag="clip_effects"):
+                dpg.add_separator()
+                dpg.add_text("Effets")
+                dpg.add_text(_NO_EFFECT, tag="clip_effects_empty", wrap=260, color=_HINT_COLOR)
+                dpg.add_group(tag="clip_effects_list")
             dpg.add_separator()
             dpg.add_text("Déplacez le calque et ses poignées dans le cadre.", wrap=260)
             dpg.add_button(label="Réinitialiser taille / recadrage",
@@ -73,6 +87,44 @@ def refresh():
     dpg.configure_item("clip_audio", show=clip.media.has_audio and not is_image)
     dpg.set_value("clip_volume", clip.volume * 100)
     dpg.set_value("clip_muted", clip.muted)
+    _refresh_effects(clip)
+
+
+def _scale(spec) -> float:
+    return 100 if spec.unit == "%" else 1
+
+
+def _refresh_effects(clip):
+    global _shown_effects
+    kinds = tuple(e.kind for e in clip.effects)
+    dpg.configure_item("clip_effects_empty", show=not kinds)
+    if (clip.id, kinds) != _shown_effects:
+        _shown_effects = (clip.id, kinds)
+        dpg.delete_item("clip_effects_list", children_only=True)
+        for index, effect in enumerate(clip.effects):
+            _effect_row(index, effect.spec)
+    for index, effect in enumerate(clip.effects):
+        if dpg.does_item_exist(effect_slider_tag(index)):
+            dpg.set_value(effect_slider_tag(index), effect.amount * _scale(effect.spec))
+
+
+def _effect_row(index, spec):
+    with dpg.group(horizontal=True, parent="clip_effects_list"):
+        dpg.add_button(label="×", width=20, user_data=index,
+                       callback=lambda s, a, i: _action("remove_effect", i))
+        if not spec.adjustable:
+            dpg.add_text(spec.label)
+            return
+        scale = _scale(spec)
+        fmt = "%.0f %%" if spec.unit == "%" else "%.1f s"
+        dpg.add_slider_float(label=spec.label, tag=effect_slider_tag(index), width=120,
+                             min_value=spec.min * scale, max_value=spec.max * scale,
+                             format=fmt, user_data=(index, scale), callback=_effect_changed)
+
+
+def _effect_changed(sender, value, user_data):
+    index, scale = user_data
+    _action("update_effect", index, value / scale)
 
 
 def _update(**changes):

@@ -65,11 +65,7 @@ def build(
             media.create(on_media_selected, actions.get(menu_bar.IMPORT_MEDIA), on_add_to_timeline)
             with dpg.group():
                 with dpg.group(horizontal=True):
-                    preview.create(
-                        on_play=playback_controller.play if playback_controller else None,
-                        on_pause=playback_controller.pause if playback_controller else None,
-                        on_stop=playback_controller.stop if playback_controller else None,
-                    )
+                    preview.create(playback=playback_controller)
                     properties.create()
                 timeline.create()
     apply_global_style()

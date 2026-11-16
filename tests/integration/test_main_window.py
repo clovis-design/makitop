@@ -3,7 +3,8 @@ import pytest
 
 from makitop.media.probe import probe
 from makitop.ui import main_window
-from makitop.ui.panels import media, preview, properties, sidebar, timeline
+from makitop.model.effects import CATALOG
+from makitop.ui.panels import effects, media, preview, properties, sidebar, timeline
 
 
 @pytest.fixture
@@ -39,6 +40,19 @@ def test_une_seule_section_media_visible(context):
     visibles = [key for key, _ in media.SECTIONS if dpg.is_item_shown(media.section_tag(key))]
     assert visibles == ["transitions"]
     assert dpg.get_value(media.TITLE_TAG) == "Transitions"
+
+
+def test_section_effets(context):
+    main_window.build()
+    sidebar.select("effects")
+    visibles = [key for key, _ in media.SECTIONS if dpg.is_item_shown(media.section_tag(key))]
+    assert visibles == ["effects"]
+    applied = []
+    effects.bind(applied.append)
+    for kind in CATALOG:
+        assert dpg.does_item_exist(effects.button_tag(kind))
+    dpg.get_item_callback(effects.button_tag("sepia"))(None, None, "sepia")
+    assert applied == ["sepia"]
 
 
 def test_selection_media_apres_reconstruction(context, video_file, monkeypatch):

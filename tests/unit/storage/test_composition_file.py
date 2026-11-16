@@ -4,6 +4,7 @@ import pytest
 
 from makitop.media.probe import probe
 from makitop.model.composition import Transform
+from makitop.model.effects import Effect
 from makitop.model.project import Project
 from makitop.model.timeline import ImageClip, MediaClip, Timeline
 from makitop.storage.project_file import ProjectFileError, load, save
@@ -13,13 +14,26 @@ def test_composition_round_trip(video_file, image_file, tmp_path):
     video, photo = probe(video_file), probe(image_file)
     project = Project(canvas_format="9:16", media=[video, photo], timeline=Timeline(fps=25, clips=[
         MediaClip(2, video, 0.1, 0.9, track=2, volume=0.4, muted=True,
-                  transform=Transform(x=0.25, width=0.5, crop_left=0.1)),
+                  transform=Transform(x=0.25, width=0.5, crop_left=0.1),
+                  effects=(Effect("sepia", 0.7), Effect("fade_in", 1.5))),
         ImageClip(0, photo, 8, track=0, transform=Transform(y=0.3, height=0.4)),
     ]))
     path = tmp_path / "composition.makitop"
     save(project, path)
     assert load(path) == project
-    assert json.loads(path.read_text())["version"] == 3
+    assert json.loads(path.read_text())["version"] == 4
+
+
+def test_unknown_effect_is_reported_as_corrupt_project(image_file, tmp_path):
+    media = probe(image_file)
+    path = tmp_path / "fx.makitop"
+    save(Project(media=[media], timeline=Timeline(clips=[
+        ImageClip(0, media, 2, effects=(Effect("bw", 1),))])), path)
+    data = json.loads(path.read_text())
+    data["timeline"][0]["effects"][0]["kind"] = "laser"
+    path.write_text(json.dumps(data))
+    with pytest.raises(ProjectFileError, match="corrompu"):
+        load(path)
 
 
 @pytest.mark.parametrize("legacy_shape", ["list", "dict"])
