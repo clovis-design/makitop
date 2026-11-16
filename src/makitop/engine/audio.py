@@ -1,8 +1,11 @@
 """Décodage audio séquentiel et rendu des portions du montage, en stéréo 48 kHz."""
 
+from itertools import pairwise
+
 import av
 import numpy as np
 
+from makitop.model.keyframes import curve, interpolate
 from makitop.model.timeline import MediaClip
 
 SAMPLE_RATE = 48000
@@ -77,14 +80,26 @@ class TimelineAudioRenderer:
                 continue
             region = slice(left - start, right - start)
             if (isinstance(clip, MediaClip) and clip.media.has_audio
-                    and not clip.muted and clip.volume > 0):
+                    and not clip.muted
+                    and (clip.volume > 0 or any(k.property == "volume" for k in clip.keyframes))):
                 # Deux occurrences de la même source peuvent jouer à des temps différents.
                 active.add(clip.id)
                 if clip.id not in self.decoders:
                     self.decoders[clip.id] = AudioDecoder(clip.media.path)
                 source = round(clip.source_start * SAMPLE_RATE) + left - clip_start
                 samples = self.decoders[clip.id].read(source, right - left)
-                result[region] += samples * clip.volume
+                points = curve(clip.keyframes, "volume")
+                if points:
+                    # Enveloppe par échantillon, indépendante des blocs de lecture/export.
+                    times = (np.arange(left, right) - clip_start) / SAMPLE_RATE
+                    gain = np.interp(times, [k.time for k in points], [k.value for k in points])
+                    for a, b in pairwise(points):
+                        if a.interpolation != "linear":
+                            mask = (times >= a.time) & (times < b.time)
+                            gain[mask] = interpolate(a, b, times[mask])
+                    result[region] += samples * gain[:, None]
+                else:
+                    result[region] += samples * clip.volume
         for clip_id in set(self.decoders) - active:
             self.decoders.pop(clip_id).close()
         return np.clip(result, -1, 1, out=result)

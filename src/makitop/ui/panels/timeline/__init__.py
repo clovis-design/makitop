@@ -1,11 +1,11 @@
 """Panneau timeline : API publique conservée pour l'assemblage de la fenêtre."""
 
-from makitop.model.timeline import MediaClip
 from makitop.ui.panels.timeline.panel import (
     TAG,
     add_clip,
     bind_clip_moved,
     bind_delete,
+    bind_keyframes,
     bind_seek,
     bind_select,
     bind_track_reordered,
@@ -23,7 +23,7 @@ from makitop.ui.panels.timeline.panel import (
 
 __all__ = [
     "TAG", "add_clip", "bind", "bind_clip_moved", "bind_delete", "bind_seek",
-    "clear", "create", "refresh", "set_playhead", "tick",
+    "clear", "create", "get_clip_ids", "refresh", "set_playhead", "tick",
 ]
 
 _editor = None
@@ -40,6 +40,24 @@ def bind(editor, on_error=None) -> None:
     bind_select(lambda clip: editor.select(clip.id))
     bind_zoom(editor.set_timeline_zoom)
 
+    def key_action(method, *args):
+        try:
+            getattr(editor, method)(*args)
+        except (ValueError, KeyError, StopIteration) as exc:
+            if on_error:
+                on_error(str(exc))
+            refresh()
+
+    def move_key(property, old_time, new_time):
+        fps = editor.project.timeline.fps
+        new_time = min(editor.selected.duration, round(new_time * fps) / fps)
+        key_action("move_keyframe", property, old_time, new_time)
+
+    bind_keyframes(
+        lambda *args: key_action("select_keyframe", *args), move_key,
+        lambda: key_action("remove_keyframe"),
+    )
+
 
 def refresh() -> None:
     global _last_project_id
@@ -49,9 +67,8 @@ def refresh() -> None:
     is_new_project = project_id != _last_project_id
     clear()
     for clip in _editor.project.timeline.clips:
-        if isinstance(clip, MediaClip):
-            add_clip(clip)
-    set_selected(_editor.selected_id)
+        add_clip(clip)
+    set_selected(_editor.selected_id, _editor.selected_keyframe)
     if is_new_project:
         _last_project_id = project_id
         saved_zoom = _editor.project.view.timeline_zoom
