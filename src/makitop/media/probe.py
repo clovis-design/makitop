@@ -33,7 +33,10 @@ def _probe_image(path: Path) -> Media:
     try:
         with Image.open(path) as image:
             image.verify()
+        with Image.open(path) as image:
             width, height = image.size
+            if image.getexif().get(274, 1) in (5, 6, 7, 8):
+                width, height = height, width
     except (UnidentifiedImageError, OSError) as error:
         raise MediaProbeError(f"Image illisible : {path.name}") from error
     return Media(path=path, kind=MediaKind.IMAGE, width=width, height=height)
