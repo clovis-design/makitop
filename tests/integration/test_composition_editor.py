@@ -107,6 +107,28 @@ def test_mouse_move_resize_and_crop(editor, video_file, monkeypatch):
     assert not errors
 
 
+def test_inspector_transform_crop_and_effects(editor, video_file, monkeypatch):
+    editor, errors = editor
+    monkeypatch.setattr(dpg, "get_text_size", lambda text: (len(text) * 8, 16))
+    editor.add_media(probe(video_file))
+    dpg.get_item_callback("clip_zoom")(None, 50)
+    assert editor.selected.transform.width == pytest.approx(0.5)
+    assert dpg.get_value("clip_zoom") == pytest.approx(50)
+    dpg.get_item_callback("clip_pos_x")(None, 10)
+    assert editor.selected.transform.x == pytest.approx(0.35)
+    crop = dpg.get_item_callback("clip_crop_left")
+    crop(None, 20, "left")
+    assert editor.selected.transform.crop_left == pytest.approx(0.2)
+    assert dpg.get_value("clip_crop_left") == pytest.approx(20)
+    before = editor.selected.transform
+    dpg.get_item_callback("clip_zoom")(None, 900)
+    assert errors and editor.selected.transform == before
+    editor.add_effect("blur")
+    assert dpg.get_value(properties.TABS) == properties.TAB_EFFECTS
+    dpg.get_item_callback(properties.effect_slider_tag(0))(None, 20, (0, 100))
+    assert editor.selected.effects[0].amount == pytest.approx(0.2)
+
+
 def test_timeline_drag_and_trim(editor, video_file, monkeypatch):
     editor, errors = editor
     clip = editor.add_media(probe(video_file))

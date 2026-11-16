@@ -1,6 +1,41 @@
 import pytest
 
-from makitop.model.composition import Transform, drag_transform, fitted_bounds
+from makitop.model.composition import (
+    Transform,
+    center_offset,
+    drag_transform,
+    fitted_bounds,
+    with_center_offset,
+    with_crop,
+    with_zoom,
+)
+
+
+def test_zoom_keeps_center_and_proportions():
+    original = Transform(x=0.1, y=0.2, width=0.4, height=0.2)
+    zoomed = with_zoom(original, 0.8)
+    assert zoomed.width == pytest.approx(0.8)
+    assert zoomed.width / zoomed.height == pytest.approx(2)
+    assert center_offset(zoomed) == pytest.approx(center_offset(original))
+    with pytest.raises(ValueError):
+        with_zoom(original, 9)
+
+
+def test_center_offset_round_trip():
+    moved = with_center_offset(Transform(width=0.5, height=0.5), 0.2, -0.1)
+    assert center_offset(moved) == pytest.approx((0.2, -0.1))
+    assert center_offset(Transform()) == (0, 0)
+
+
+def test_numeric_crop_moves_only_one_edge():
+    original = Transform()
+    cropped = with_crop(original, (0, 0, 1, 1), "right", 0.25)
+    assert cropped.crop_right == pytest.approx(0.25)
+    assert cropped.x == 0 and cropped.width == pytest.approx(0.75)
+    restored = with_crop(cropped, (0, 0, 0.75, 1), "right", 0)
+    assert restored.crop_right == pytest.approx(0)
+    assert restored.width == pytest.approx(1)
+    assert with_crop(original, (0, 0, 1, 1), "top", 2).crop_top == pytest.approx(0.98)
 
 
 def test_resize_keeps_aspect_ratio_and_opposite_corner():
