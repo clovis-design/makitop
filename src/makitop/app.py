@@ -60,7 +60,8 @@ def main() -> None:
         timeline_panel.clear()
         _show_project_media(session, executor)
         editor.selected_id = None
-        editor.show_montage(0)
+        # On reprend là où le projet a été laissé (position enregistrée avec le projet).
+        editor.show_montage(session.project.view.playhead)
 
     def show_home() -> None:
         playback_controller.pause()
@@ -158,6 +159,7 @@ def main() -> None:
             dpg.run_callbacks(dpg.get_callback_queue())
 
             current_time = playback_controller.current_time()
+            editor.sync_playhead()
             preview.update_time(current_time)
             timeline_panel.set_playhead(0 if editor.source_mode else current_time)
 

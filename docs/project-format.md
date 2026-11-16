@@ -30,7 +30,8 @@ Un projet est un document JSON UTF-8. La version actuelle est **3**.
       "volume": 0.8,
       "muted": false
     }
-  ]
+  ],
+  "view": {"playhead": 2.3, "timeline_zoom": 100}
 }
 ```
 
@@ -54,6 +55,11 @@ Un projet est un document JSON UTF-8. La version actuelle est **3**.
   cadre. Les quatre marges `crop_*` sont des fractions des dimensions sources.
 - **Audio** : gain linéaire `volume` entre 0 et 2 ; `muted` coupe l'occurrence.
   Les transformations visuelles ne modifient pas l'audio.
+- **État d'affichage** : `view.playhead` est la position de lecture en secondes
+  (timeline et preview), `view.timeline_zoom` le zoom de la timeline en pixels par
+  seconde. Ils sont restaurés à l'ouverture ; les modifier marque le projet comme
+  modifié. Réordonner les lignes de la timeline renumérote les pistes 0, 1, 2…
+  (la ligne du bas passe devant).
 - **Sauvegarde atomique** : écriture dans un fichier temporaire puis remplacement
   du projet. Les fichiers sources restent inchangés.
 
@@ -65,6 +71,7 @@ Un projet est un document JSON UTF-8. La version actuelle est **3**.
   `source_out` est convertie à la lecture.
 - Les anciens clips reçoivent par défaut la piste 0, une géométrie plein cadre
   avec conservation des proportions, le volume 1 et `muted: false`.
+- Un projet sans `view` s'ouvre avec la lecture à 0 et un zoom de 100 px/s.
 - Une version plus récente que celle comprise par l'application est refusée.
   L'enregistrement d'un ancien projet produit le format v3.
 

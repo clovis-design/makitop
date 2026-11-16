@@ -1,11 +1,28 @@
-"""Projet de montage : médias importés et timeline."""
+"""Projet de montage : médias importés, timeline et état d'affichage."""
 
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from makitop.model.composition import FORMATS
 from makitop.model.media import Media
 from makitop.model.timeline import Timeline
+
+DEFAULT_TIMELINE_ZOOM = 100  # pixels par seconde
+
+
+@dataclass
+class ViewState:
+    """État d'affichage de l'éditeur, enregistré avec le projet pour le retrouver tel quel."""
+
+    playhead: float = 0.0  # position de lecture (secondes), partagée timeline / preview
+    timeline_zoom: int = DEFAULT_TIMELINE_ZOOM  # pixels par seconde
+
+    def __post_init__(self):
+        if not math.isfinite(self.playhead) or self.playhead < 0:
+            raise ValueError("Position de lecture invalide.")
+        if type(self.timeline_zoom) is not int or self.timeline_zoom <= 0:
+            raise ValueError("Zoom de timeline invalide.")
 
 
 @dataclass
@@ -14,6 +31,7 @@ class Project:
     media: list[Media] = field(default_factory=list)
     timeline: Timeline = field(default_factory=lambda: Timeline(fps=60))
     canvas_format: str = "16:9"
+    view: ViewState = field(default_factory=ViewState)
 
     def __post_init__(self):
         if self.canvas_format not in FORMATS:

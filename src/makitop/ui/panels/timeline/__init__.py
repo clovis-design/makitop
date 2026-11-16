@@ -9,6 +9,7 @@ from makitop.ui.panels.timeline.panel import (
     bind_seek,
     bind_select,
     bind_track_reordered,
+    bind_zoom,
     clear,
     create,
     fit_zoom,
@@ -16,6 +17,7 @@ from makitop.ui.panels.timeline.panel import (
     get_track_rows,
     set_playhead,
     set_selected,
+    set_zoom,
     tick,
 )
 
@@ -36,6 +38,7 @@ def bind(editor, on_error=None) -> None:
     bind_clip_moved(lambda clip: _bridge_drag(editor, clip))
     bind_track_reordered(lambda: _bridge_reorder(editor))
     bind_select(lambda clip: editor.select(clip.id))
+    bind_zoom(editor.set_timeline_zoom)
 
 
 def refresh() -> None:
@@ -51,7 +54,12 @@ def refresh() -> None:
     set_selected(_editor.selected_id)
     if is_new_project:
         _last_project_id = project_id
-        fit_zoom()
+        saved_zoom = _editor.project.view.timeline_zoom
+        from makitop.model.project import DEFAULT_TIMELINE_ZOOM
+        if saved_zoom != DEFAULT_TIMELINE_ZOOM:
+            set_zoom(saved_zoom)
+        else:
+            fit_zoom()
 
 
 def _bridge_delete(editor, clip) -> None:
