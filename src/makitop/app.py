@@ -97,6 +97,17 @@ def main() -> None:
 
         importer.on_failed(import_media.show_error)
 
+        def _on_media_deleted(media: Media) -> None:
+            project = session.project
+            project.media = [m for m in project.media if m.id != media.id]
+            for clip in [c for c in project.timeline.clips if hasattr(c, "media") and c.media.id == media.id]:
+                project.timeline.remove_clip(clip.id)
+                if editor.selected_id == clip.id:
+                    editor.selected_id = None
+            session.mark_dirty()
+            refresh_project_media()
+
+        media_panel.bind_delete_media(_on_media_deleted)
         importer.on_imported(media_panel.add_media)
         importer.on_imported(lambda _: session.mark_dirty())
         session.on_project_changed(lambda project: refresh_project_media())
@@ -132,6 +143,7 @@ def main() -> None:
                 log.exception("Rendu impossible")
                 message.show("Lecture impossible", str(exc))
 
+            timeline_panel.tick()
             dpg.render_dearpygui_frame()
 
     finally:

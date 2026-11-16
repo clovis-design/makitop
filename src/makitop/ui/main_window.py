@@ -11,7 +11,6 @@ from makitop.ui import menu_bar, shortcuts
 from makitop.ui.assets.style import COLORS, FONT_INTER
 from makitop.ui.layout import compute_layout
 from makitop.ui.panels import media, preview, properties, sidebar, timeline
-from makitop.ui.assets.style import COLORS, FONT_INTER
 
 ROOT = "main_window"
 
