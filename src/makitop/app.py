@@ -127,6 +127,7 @@ def main() -> None:
         dpg.set_viewport_resize_callback(lambda: screens.resize())
         dpg.setup_dearpygui()
         dpg.show_viewport()
+        _poll_error_shown = False
         show_home()
         while dpg.is_dearpygui_running():
             dpg.run_callbacks(dpg.get_callback_queue())
@@ -139,9 +140,12 @@ def main() -> None:
                 frame = playback_controller.poll()
                 if frame is not None:
                     preview.update_frame(frame)
+                _poll_error_shown = False
             except Exception as exc:
                 log.exception("Rendu impossible")
-                message.show("Lecture impossible", str(exc))
+                if not _poll_error_shown:
+                    _poll_error_shown = True
+                    message.show("Lecture impossible", str(exc))
 
             timeline_panel.tick()
             dpg.render_dearpygui_frame()
