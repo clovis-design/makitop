@@ -52,6 +52,8 @@ _playhead_sec: float = 0.0
 _on_seek = None       # Callable[[float], None]
 _on_delete = None     # Callable[[MediaClip], None]
 _on_clip_moved = None # Callable[[MediaClip], None]
+_on_zoom = None       # Callable[[int], None] : nouveau zoom en px/s
+_on_reorder = None    # Callable[[MediaClip, int], None] : clip, nouvelle ligne
 _dragging: bool = False
 _drag_clip: MediaClip | None = None
 _drag_offset_px: float = 0.0
@@ -65,7 +67,7 @@ def create() -> None:
     global _zoom_idx, _px_per_sec, _clips, _playhead_sec
     global _dragging, _drag_clip, _drag_offset_px, _selected_clip
     global _header_drag_row, _header_drag_target, _drop_indicator_theme
-    global _on_delete, _on_clip_moved
+    global _on_delete, _on_clip_moved, _on_zoom, _on_reorder
     _zoom_idx = _DEFAULT_ZOOM_IDX
     _px_per_sec = _ZOOM_LEVELS[_DEFAULT_ZOOM_IDX]
     _clips = []
@@ -78,6 +80,8 @@ def create() -> None:
     _header_drag_target = None
     _on_delete = None
     _on_clip_moved = None
+    _on_zoom = None
+    _on_reorder = None
 
     with dpg.theme() as _drop_indicator_theme:
         with dpg.theme_component(dpg.mvChildWindow):
@@ -148,6 +152,16 @@ def bind_delete(fn) -> None:
 def bind_clip_moved(fn) -> None:
     global _on_clip_moved
     _on_clip_moved = fn
+
+
+def bind_zoom(fn) -> None:
+    global _on_zoom
+    _on_zoom = fn
+
+
+def bind_reorder(fn) -> None:
+    global _on_reorder
+    _on_reorder = fn
 
 
 def set_playhead(seconds: float) -> None:
@@ -269,6 +283,10 @@ def _do_reorder(source: int, target: int) -> None:
     insert_at = target if target <= source else target - 1
     if insert_at == source:
         return
+    if _on_reorder is not None:
+        # L'éditeur modifie le modèle puis demande un rafraîchissement du panneau.
+        _on_reorder(_clips[source], insert_at)
+        return
     clip = _clips.pop(source)
     _clips.insert(insert_at, clip)
     if _on_clip_moved is not None:
@@ -289,20 +307,33 @@ def _clip_at(local_x: float, local_y: float) -> "MediaClip | None":
 
 # ── Zoom ──────────────────────────────────────────────────────────────────────
 
-def _zoom_in() -> None:
+def set_zoom(pixels_per_second: int) -> None:
+    """Applique un zoom enregistré (le niveau le plus proche), sans prévenir l'éditeur."""
     global _zoom_idx, _px_per_sec
+    _zoom_idx = min(
+        range(len(_ZOOM_LEVELS)), key=lambda i: abs(_ZOOM_LEVELS[i] - pixels_per_second)
+    )
+    _px_per_sec = _ZOOM_LEVELS[_zoom_idx]
+    _redraw()
+
+
+def _set_zoom_index(index: int) -> None:
+    global _zoom_idx, _px_per_sec
+    _zoom_idx = index
+    _px_per_sec = _ZOOM_LEVELS[_zoom_idx]
+    _redraw()
+    if _on_zoom is not None:
+        _on_zoom(_px_per_sec)
+
+
+def _zoom_in() -> None:
     if _zoom_idx < len(_ZOOM_LEVELS) - 1:
-        _zoom_idx += 1
-        _px_per_sec = _ZOOM_LEVELS[_zoom_idx]
-        _redraw()
+        _set_zoom_index(_zoom_idx + 1)
 
 
 def _zoom_out() -> None:
-    global _zoom_idx, _px_per_sec
     if _zoom_idx > 0:
-        _zoom_idx -= 1
-        _px_per_sec = _ZOOM_LEVELS[_zoom_idx]
-        _redraw()
+        _set_zoom_index(_zoom_idx - 1)
 
 
 # ── Taille ────────────────────────────────────────────────────────────────────
