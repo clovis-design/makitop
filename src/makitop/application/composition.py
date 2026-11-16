@@ -3,6 +3,7 @@
 from dataclasses import replace
 
 from makitop.model.composition import FORMATS, Transform
+from makitop.model.effects import CATALOG, Effect
 from makitop.model.media import MediaKind
 from makitop.model.project import Project
 from makitop.model.timeline import ImageClip, MediaClip, Timeline
@@ -93,6 +94,29 @@ class CompositionEditor:
             elif current.track == target:
                 current.track = previous
         self._edited()
+
+    def add_effect(self, kind):
+        clip = self.selected
+        if clip is None:
+            raise ValueError("Sélectionnez un clip dans la timeline.")
+        if any(e.kind == kind for e in clip.effects):
+            raise ValueError("Effet déjà appliqué à ce clip.")
+        effect = Effect(kind, CATALOG[kind].default)
+        self.update_clip(clip.id, effects=clip.effects + (effect,))
+
+    def update_effect(self, index, amount):
+        clip = self.selected
+        if clip is None:
+            return
+        effects = list(clip.effects)
+        effects[index] = Effect(effects[index].kind, amount)
+        self.update_clip(clip.id, effects=tuple(effects))
+
+    def remove_effect(self, index):
+        clip = self.selected
+        if clip is None:
+            return
+        self.update_clip(clip.id, effects=clip.effects[:index] + clip.effects[index + 1:])
 
     def reset_transform(self):
         if self.selected is not None:

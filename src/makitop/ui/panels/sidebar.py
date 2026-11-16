@@ -15,6 +15,7 @@ ICONS_DIR = _ROOT_DIR / "assets" / "icons"
 ICON_FILES: dict[str, str] = {
     "imports": "media.png",
     "bibliotheque": "bibliotheque.png",
+    "effects": "effets.png",
     "text": "texte.png",
     "transitions": "transition.png",
 }
@@ -27,6 +28,7 @@ SIDEBAR_WIDTH = 80      # Largeur estimée de la barre (pour le calcul du centra
 SUBTITLES: dict[str, str] = {
     "imports": "Médias",
     "bibliotheque": "Bibliothèque",
+    "effects": "Effets",
     "text": "Texte",
     "transitions": "Transitions",
 }

@@ -1,10 +1,10 @@
 """Lecture et écriture des fichiers de projet `.makitop` (JSON).
 
-Format (version 3 ; lecture des anciens projets versions 1 et 2 conservée) :
+Format (version 4 ; lecture des anciens projets versions 1 à 3 conservée) :
 
     {
       "format": "makitop",
-      "version": 3,
+      "version": 4,
       "name": "Mon film",
       "canvas_format": "16:9",
       "fps": 30,
@@ -16,7 +16,8 @@ Format (version 3 ; lecture des anciens projets versions 1 et 2 conservée) :
           "timeline_start": 0.0,
           "media_id": "...",
           "source_start": 0.0,
-          "source_end": 10.5
+          "source_end": 10.5,
+          "effects": [{"kind": "bw", "amount": 1.0}]
         }
       ]
     }
@@ -32,13 +33,14 @@ from dataclasses import asdict
 from pathlib import Path
 
 from makitop.model.composition import Transform
+from makitop.model.effects import Effect
 from makitop.model.media import Media, MediaKind
 from makitop.model.project import Project
 from makitop.model.timeline import BaseClip, ImageClip, MediaClip, Timeline
 
 EXTENSION = ".makitop"
 FORMAT = "makitop"
-VERSION = 3
+VERSION = 4
 
 
 class ProjectFileError(Exception):
@@ -133,6 +135,7 @@ def _clip_to_dict(clip: BaseClip) -> dict:
     common = {
         "track": clip.track, "transform": asdict(clip.transform),
         "volume": clip.volume, "muted": clip.muted,
+        "effects": [{"kind": e.kind, "amount": e.amount} for e in clip.effects],
     }
     if isinstance(clip, MediaClip):
         return {
@@ -163,6 +166,8 @@ def _clip_from_dict(data: dict, media_index: dict[str, Media]) -> BaseClip:
         "track": data.get("track", 0),
         "transform": Transform(**data.get("transform", {})),
         "volume": float(data.get("volume", 1)), "muted": bool(data.get("muted", False)),
+        "effects": tuple(Effect(str(e["kind"]), float(e["amount"]))
+                         for e in data.get("effects", [])),
     }
     if clip_type == "media":
         return MediaClip(

@@ -43,6 +43,7 @@ _COLOR_CLIP_FILL = (50, 110, 170, 210)
 _COLOR_CLIP_BORDER = (90, 150, 210, 255)
 _COLOR_CLIP_SELECTED = (255, 200, 60, 255)
 _COLOR_CLIP_TEXT = (220, 225, 235, 255)
+_COLOR_FX_BADGE = (140, 90, 220, 230)
 _COLOR_PLAYHEAD = (210, 60, 60, 255)
 _COLOR_CURSOR = (255, 255, 255, 55)
 
@@ -521,6 +522,17 @@ def _draw_clips() -> None:
                 size=12,
                 parent=_STATIC_LAYER,
             )
+
+        if getattr(clip, "effects", ()) and w >= 24:
+            # Badge « fx » : le clip porte au moins un effet.
+            bx = x + w - 22
+            dpg.draw_rectangle(
+                (bx, clip_y + 3), (bx + 19, clip_y + 16),
+                fill=_COLOR_FX_BADGE, color=(0, 0, 0, 0), rounding=3,
+                parent=_STATIC_LAYER,
+            )
+            dpg.draw_text((bx + 4, clip_y + 3), "fx", color=_COLOR_CLIP_TEXT, size=12,
+                          parent=_STATIC_LAYER)
 
 
 def _draw_playhead() -> None:

@@ -14,6 +14,7 @@ from makitop.model.media import Media
 from makitop.storage.recent import RecentProjects, config_dir
 from makitop.ui import home, main_window, menu_bar, screens
 from makitop.ui.dialogs import import_media, message, project_file
+from makitop.ui.panels import effects as effects_panel
 from makitop.ui.panels import media as media_panel
 from makitop.ui.panels import preview, properties
 from makitop.ui.panels import timeline as timeline_panel
@@ -54,6 +55,12 @@ def main() -> None:
         except ValueError as exc:
             composition_error(str(exc))
 
+    def apply_effect(kind: str) -> None:
+        try:
+            editor.add_effect(kind)
+        except ValueError as exc:
+            composition_error(str(exc))
+
     def refresh_project_media() -> None:
         preview.clear()
         timeline_panel.clear()
@@ -91,6 +98,7 @@ def main() -> None:
         preview.bind(editor, composition_error)
         properties.bind(editor, composition_error)
         timeline_panel.bind(editor, composition_error)
+        effects_panel.bind(apply_effect)
         editor.on_refresh = refresh_editor
         editor.show_montage(0)
         project_file.create(session)
