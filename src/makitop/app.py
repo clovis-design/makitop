@@ -14,6 +14,8 @@ from makitop.model.media import Media
 from makitop.storage.recent import RecentProjects, config_dir
 from makitop.ui import home, main_window, menu_bar, screens
 from makitop.ui.dialogs import import_media, message, project_file
+from makitop.ui.dialogs.export_video import ExportDialog
+from makitop.ui.panels import effects as effects_panel
 from makitop.ui.panels import media as media_panel
 from makitop.ui.panels import preview, properties
 from makitop.ui.panels import timeline as timeline_panel
@@ -54,12 +56,19 @@ def main() -> None:
         except ValueError as exc:
             composition_error(str(exc))
 
+    def apply_effect(kind: str) -> None:
+        try:
+            editor.add_effect(kind)
+        except ValueError as exc:
+            composition_error(str(exc))
+
     def refresh_project_media() -> None:
         preview.clear()
         timeline_panel.clear()
         _show_project_media(session, executor)
         editor.selected_id = None
-        editor.show_montage(0)
+        # On reprend là où le projet a été laissé (position enregistrée avec le projet).
+        editor.show_montage(session.project.view.playhead)
 
     def show_home() -> None:
         playback_controller.pause()
@@ -70,8 +79,10 @@ def main() -> None:
         return lambda: None if screens.home_shown() else action()
 
     dpg.create_context()
+    export_dialog = None
     try:
         dpg.configure_app(manual_callback_management=True)
+        export_dialog = ExportDialog(session, executor)
         main_window.build(
             actions={
                 menu_bar.NEW_PROJECT: project_file.new_project,
@@ -79,6 +90,7 @@ def main() -> None:
                 menu_bar.SAVE_PROJECT: editor_only(project_file.save),
                 menu_bar.SAVE_PROJECT_AS: editor_only(project_file.save_dialog),
                 menu_bar.IMPORT_MEDIA: editor_only(import_media.open_dialog),
+                menu_bar.EXPORT_VIDEO: editor_only(export_dialog.open),
                 menu_bar.CLOSE_PROJECT: editor_only(lambda: project_file.close_project(show_home)),
                 menu_bar.QUIT: project_file.quit_app,
             },
@@ -112,11 +124,13 @@ def main() -> None:
         preview.bind(editor, composition_error)
         properties.bind(editor, composition_error)
         timeline_panel.bind(editor, composition_error)
+        effects_panel.bind(apply_effect)
         editor.on_refresh = refresh_editor
         editor.show_montage(0)
         project_file.create(session)
 
         importer.on_failed(import_media.show_error)
+        importer.on_imported(media_panel.add_media)
 
         def _on_media_deleted(media: Media) -> None:
             project = session.project
@@ -154,6 +168,7 @@ def main() -> None:
             dpg.run_callbacks(dpg.get_callback_queue())
 
             current_time = playback_controller.current_time()
+            editor.sync_playhead()
             preview.update_time(current_time)
             timeline_panel.set_playhead(0 if editor.source_mode else current_time)
 
@@ -169,9 +184,12 @@ def main() -> None:
                     message.show("Lecture impossible", str(exc))
 
             timeline_panel.tick()
+            export_dialog.tick()
             dpg.render_dearpygui_frame()
 
     finally:
+        if export_dialog is not None:
+            export_dialog.close()
         executor.shutdown(wait=True, cancel_futures=True)
         playback_controller.close()
         dpg.destroy_context()

@@ -43,6 +43,7 @@ _COLOR_CLIP_FILL = (50, 110, 170, 210)
 _COLOR_CLIP_BORDER = (90, 150, 210, 255)
 _COLOR_CLIP_SELECTED = (255, 200, 60, 255)
 _COLOR_CLIP_TEXT = (220, 225, 235, 255)
+_COLOR_FX_BADGE = (140, 90, 220, 230)
 _COLOR_PLAYHEAD = (210, 60, 60, 255)
 _COLOR_CURSOR = (255, 255, 255, 55)
 
@@ -55,6 +56,7 @@ _on_delete = None          # Callable[[MediaClip], None]
 _on_clip_moved = None      # Callable[[MediaClip], None]  — drag d'un clip
 _on_track_reordered = None # Callable[[], None]           — réordonnancement ▲/▼
 _on_select = None          # Callable[[MediaClip], None]
+_on_zoom = None            # Callable[[int], None]        — nouveau zoom en px/s
 _dragging: bool = False
 _drag_clip: MediaClip | None = None
 _drag_offset_px: float = 0.0
@@ -65,7 +67,7 @@ _pending_fit_zoom: bool = False
 def create() -> None:
     global _zoom_idx, _px_per_sec, _tracks, _playhead_sec
     global _dragging, _drag_clip, _drag_offset_px, _selected_clip
-    global _on_delete, _on_clip_moved, _on_track_reordered, _on_select, _pending_fit_zoom
+    global _on_delete, _on_clip_moved, _on_track_reordered, _on_select, _on_zoom, _pending_fit_zoom
     _zoom_idx = _DEFAULT_ZOOM_IDX
     _px_per_sec = _ZOOM_LEVELS[_DEFAULT_ZOOM_IDX]
     _tracks = []
@@ -78,6 +80,7 @@ def create() -> None:
     _on_clip_moved = None
     _on_track_reordered = None
     _on_select = None
+    _on_zoom = None
     _pending_fit_zoom = False
 
     with dpg.item_handler_registry(tag=_HANDLER_TAG):
@@ -155,11 +158,9 @@ def _apply_fit_zoom() -> None:
     global _zoom_idx, _px_per_sec, _pending_fit_zoom
     all_clips = _all_clips()
     if not all_clips:
-        _pending_fit_zoom = False
-        return
+        return  # Pas encore de clips — retenter au prochain tick
     total_duration = max(c.timeline_end for c in all_clips)
     if total_duration <= 0:
-        _pending_fit_zoom = False
         return
     available_w = 0
     if dpg.does_item_exist(_SCROLL_TAG):
@@ -209,6 +210,19 @@ def bind_track_reordered(fn) -> None:
 def bind_select(fn) -> None:
     global _on_select
     _on_select = fn
+
+
+def bind_zoom(fn) -> None:
+    global _on_zoom
+    _on_zoom = fn
+
+
+def set_zoom(pixels_per_second: int) -> None:
+    """Applique un zoom enregistré (niveau le plus proche), sans notifier l'éditeur."""
+    global _zoom_idx, _px_per_sec
+    _zoom_idx = min(range(len(_ZOOM_LEVELS)), key=lambda i: abs(_ZOOM_LEVELS[i] - pixels_per_second))
+    _px_per_sec = _ZOOM_LEVELS[_zoom_idx]
+    _redraw()
 
 
 def set_selected(clip_id: str | None) -> None:
@@ -346,20 +360,23 @@ def _all_clips() -> list[MediaClip]:
 
 # ── Zoom ──────────────────────────────────────────────────────────────────────
 
-def _zoom_in() -> None:
+def _set_zoom_index(index: int) -> None:
     global _zoom_idx, _px_per_sec
+    _zoom_idx = index
+    _px_per_sec = _ZOOM_LEVELS[_zoom_idx]
+    _redraw()
+    if _on_zoom is not None:
+        _on_zoom(_px_per_sec)
+
+
+def _zoom_in() -> None:
     if _zoom_idx < len(_ZOOM_LEVELS) - 1:
-        _zoom_idx += 1
-        _px_per_sec = _ZOOM_LEVELS[_zoom_idx]
-        _redraw()
+        _set_zoom_index(_zoom_idx + 1)
 
 
 def _zoom_out() -> None:
-    global _zoom_idx, _px_per_sec
     if _zoom_idx > 0:
-        _zoom_idx -= 1
-        _px_per_sec = _ZOOM_LEVELS[_zoom_idx]
-        _redraw()
+        _set_zoom_index(_zoom_idx - 1)
 
 
 # ── Taille ────────────────────────────────────────────────────────────────────
@@ -594,6 +611,17 @@ def _draw_clips() -> None:
                     size=12,
                     parent=_STATIC_LAYER,
                 )
+
+        if getattr(clip, "effects", ()) and w >= 24:
+            # Badge « fx » : le clip porte au moins un effet.
+            bx = x + w - 22
+            dpg.draw_rectangle(
+                (bx, clip_y + 3), (bx + 19, clip_y + 16),
+                fill=_COLOR_FX_BADGE, color=(0, 0, 0, 0), rounding=3,
+                parent=_STATIC_LAYER,
+            )
+            dpg.draw_text((bx + 4, clip_y + 3), "fx", color=_COLOR_CLIP_TEXT, size=12,
+                          parent=_STATIC_LAYER)
 
 
 def _draw_playhead() -> None:

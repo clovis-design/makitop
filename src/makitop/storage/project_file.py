@@ -1,10 +1,10 @@
 """Lecture et écriture des fichiers de projet `.makitop` (JSON).
 
-Format (version 3 ; lecture des anciens projets versions 1 et 2 conservée) :
+Format (version 4 ; lecture des anciens projets versions 1 à 3 conservée) :
 
     {
       "format": "makitop",
-      "version": 3,
+      "version": 4,
       "name": "Mon film",
       "canvas_format": "16:9",
       "fps": 30,
@@ -16,10 +16,15 @@ Format (version 3 ; lecture des anciens projets versions 1 et 2 conservée) :
           "timeline_start": 0.0,
           "media_id": "...",
           "source_start": 0.0,
-          "source_end": 10.5
+          "source_end": 10.5,
+          "effects": [{"kind": "bw", "amount": 1.0}]
         }
-      ]
+      ],
+      "view": {"playhead": 12.4, "timeline_zoom": 100}
     }
+
+`view` (état d'affichage : position de lecture, zoom de la timeline) est optionnel ;
+les projets qui ne l'ont pas s'ouvrent avec la lecture à 0 et le zoom par défaut.
 
 Les chemins des médias situés dans le dossier du projet (ou un sous-dossier) sont
 enregistrés en relatif, pour qu'on puisse déplacer le dossier entier ; les autres
@@ -32,13 +37,14 @@ from dataclasses import asdict
 from pathlib import Path
 
 from makitop.model.composition import Transform
+from makitop.model.effects import Effect
 from makitop.model.media import Media, MediaKind
-from makitop.model.project import Project
+from makitop.model.project import DEFAULT_TIMELINE_ZOOM, Project, ViewState
 from makitop.model.timeline import BaseClip, ImageClip, MediaClip, Timeline
 
 EXTENSION = ".makitop"
 FORMAT = "makitop"
-VERSION = 3
+VERSION = 4
 
 
 class ProjectFileError(Exception):
@@ -57,6 +63,7 @@ def save(project: Project, path: Path) -> None:
         "timeline": [_clip_to_dict(c) for c in project.timeline.clips],
         "fps": project.timeline.fps,
         "canvas_format": project.canvas_format,
+        "view": asdict(project.view),
     }
     tmp = path.with_name(path.name + ".tmp")
     try:
@@ -101,6 +108,7 @@ def load(path: Path) -> Project:
             name=str(data.get("name") or path.stem), media=media,
             timeline=Timeline(clips=clips, fps=fps),
             canvas_format=data.get("canvas_format", "16:9"),
+            view=_view_from_dict(data.get("view", {})),
         )
     except (AttributeError, KeyError, TypeError, ValueError) as error:
         raise ProjectFileError(f"Projet corrompu : {path.name}") from error
@@ -133,6 +141,7 @@ def _clip_to_dict(clip: BaseClip) -> dict:
     common = {
         "track": clip.track, "transform": asdict(clip.transform),
         "volume": clip.volume, "muted": clip.muted,
+        "effects": [{"kind": e.kind, "amount": e.amount} for e in clip.effects],
     }
     if isinstance(clip, MediaClip):
         return {
@@ -163,6 +172,8 @@ def _clip_from_dict(data: dict, media_index: dict[str, Media]) -> BaseClip:
         "track": data.get("track", 0),
         "transform": Transform(**data.get("transform", {})),
         "volume": float(data.get("volume", 1)), "muted": bool(data.get("muted", False)),
+        "effects": tuple(Effect(str(e["kind"]), float(e["amount"]))
+                         for e in data.get("effects", [])),
     }
     if clip_type == "media":
         return MediaClip(
@@ -182,6 +193,14 @@ def _clip_from_dict(data: dict, media_index: dict[str, Media]) -> BaseClip:
             **common,
         )
     raise ValueError(f"Type de clip inconnu : {clip_type!r}")
+
+
+def _view_from_dict(data: dict) -> ViewState:
+    # Absent des projets enregistrés avant l'ajout de l'état d'affichage : valeurs par défaut.
+    return ViewState(
+        playhead=float(data.get("playhead", 0.0)),
+        timeline_zoom=int(data.get("timeline_zoom", DEFAULT_TIMELINE_ZOOM)),
+    )
 
 
 def _portable_path(path: Path, project_dir: Path) -> str:

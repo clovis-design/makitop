@@ -8,6 +8,7 @@ import dearpygui.dearpygui as dpg
 
 from makitop.media import thumbnails
 from makitop.model.media import Media, MediaKind
+from makitop.ui.panels import effects as effects_panel
 
 TAG = "media_panel"
 TITLE_TAG = "media_panel_title"
@@ -32,6 +33,7 @@ _BADGE_SIZE = 13
 SECTIONS: list[tuple[str, str]] = [
     ("imports", "Médias importés"),
     ("bibliotheque", "Bibliothèque"),
+    ("effects", "Effets"),
     ("text", "Texte"),
     ("transitions", "Transitions"),
 ]
@@ -222,7 +224,9 @@ def create(
                         
                         dpg.add_spacer(height=8)
                         dpg.add_group(tag=_GRID_TAG)
-                    
+                    elif key == "effects":
+                        effects_panel.build()
+
     dpg.bind_item_handler_registry(TAG, _PANEL_HANDLER)
 
 

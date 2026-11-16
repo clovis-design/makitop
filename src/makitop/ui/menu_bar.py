@@ -11,6 +11,7 @@ RECENT_PROJECTS = "Projets récents"
 SAVE_PROJECT = "Enregistrer"
 SAVE_PROJECT_AS = "Enregistrer sous..."
 IMPORT_MEDIA = "Importer un média..."
+EXPORT_VIDEO = "Exporter..."
 CLOSE_PROJECT = "Fermer le projet"
 QUIT = "Quitter"
 
@@ -24,7 +25,7 @@ MENUS: dict[str, list[str]] = {
         SAVE_PROJECT,
         SAVE_PROJECT_AS,
         IMPORT_MEDIA,
-        "Exporter...",
+        EXPORT_VIDEO,
         CLOSE_PROJECT,
         QUIT,
     ],

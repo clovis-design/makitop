@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 from makitop.model.composition import Transform
+from makitop.model.effects import Effect
 from makitop.model.media import Media
 
 
@@ -19,8 +20,13 @@ class BaseClip(ABC):
     transform: Transform = field(default_factory=Transform)
     volume: float = 1.0
     muted: bool = False
+    effects: tuple[Effect, ...] = ()
 
     def __post_init__(self):
+        if not isinstance(self.effects, tuple) or not all(
+            isinstance(e, Effect) for e in self.effects
+        ):
+            raise ValueError("Liste d'effets invalide.")
         if type(self.track) is not int or not 0 <= self.track <= 99:
             raise ValueError("La piste doit être comprise entre 0 et 99.")
         if not math.isfinite(self.volume) or not 0 <= self.volume <= 2:
