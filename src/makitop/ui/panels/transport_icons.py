@@ -41,12 +41,12 @@ def _mask(name, x, y):
     raise KeyError(name)
 
 
-def icon_rgba(name: str, size: int = ICON_SIZE) -> np.ndarray:
+def icon_rgba(name: str, size: int = ICON_SIZE, mask=_mask) -> np.ndarray:
     """Renvoie l'icône en RGBA flottant aplati, prête pour une texture Dear PyGui."""
     n = size * _SUPERSAMPLE
     coords = (np.arange(n) + 0.5) / n
     x, y = np.meshgrid(coords, coords)
-    coverage = _mask(name, x, y).reshape(size, _SUPERSAMPLE, size, _SUPERSAMPLE).mean(axis=(1, 3))
+    coverage = mask(name, x, y).reshape(size, _SUPERSAMPLE, size, _SUPERSAMPLE).mean(axis=(1, 3))
     rgba = np.empty((size, size, 4), dtype=np.float32)
     rgba[..., :3] = np.array(COLOR, dtype=np.float32) / 255
     rgba[..., 3] = coverage
