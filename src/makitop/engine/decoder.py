@@ -9,10 +9,14 @@ class MediaDecoder:
         self._sample = None
         self._ahead = None
         self._sample_time = None
+        self._rgb_frame = None
+        self._rgb = None
 
     def open(self, path):
         self.container = av.open(str(path))
         self.video_stream = self.container.streams.video[0]
+        # Parallélisme intra-image : conserve une faible latence aux seeks.
+        self.video_stream.thread_type = "SLICE"
 
         # Prépare la lecture séquentielle des frames
         self._reset_frame_iterator()
@@ -24,6 +28,7 @@ class MediaDecoder:
         self.container = None
         self.video_stream = None
         self.frame_iterator = None
+        self._sample = self._ahead = self._rgb_frame = self._rgb = None
 
     def _reset_frame_iterator(self):
         """
@@ -34,6 +39,7 @@ class MediaDecoder:
         self._sample = None
         self._ahead = None
         self._sample_time = None
+        self._rgb_frame = self._rgb = None
 
     def sample_at(self, target_time):
         """Image couvrant ce temps ; décodage séquentiel entre deux seeks.
@@ -58,7 +64,14 @@ class MediaDecoder:
             self._ahead = None
         self._sample_time = target_time
         frame = self._sample if self._sample is not None else self._ahead
-        return None if frame is None else frame.to_ndarray(format="rgb24")
+        if frame is None:
+            return None
+        # Une source 30 fps dans un montage 60/120 fps ne nécessite qu'une
+        # conversion YUV→RGB par image source, pas une par image affichée.
+        if frame is not self._rgb_frame:
+            self._rgb = frame.to_ndarray(format="rgb24")
+            self._rgb_frame = frame
+        return self._rgb
 
     def get_info(self):
         return {

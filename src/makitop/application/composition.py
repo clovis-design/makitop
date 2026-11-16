@@ -1,6 +1,7 @@
 """Édition de la composition ; le lecteur reçoit toujours un instantané indépendant."""
 
 from dataclasses import replace
+from math import ceil
 
 from makitop.model.composition import FORMATS, Transform
 from makitop.model.media import MediaKind
@@ -35,7 +36,9 @@ class CompositionEditor:
         clip = self._new_clip(media, 0, 0)
         self.source_mode = True
         self.playback.set_project(Project(
-            media=[media], timeline=Timeline(clips=[clip]),
+            media=[media], timeline=Timeline(
+                clips=[clip], fps=min(120, max(1, ceil(media.fps or self.project.timeline.fps))),
+            ),
             canvas_format=self.project.canvas_format,
         ))
         self.on_refresh()
@@ -77,6 +80,12 @@ class CompositionEditor:
         if value not in FORMATS:
             raise ValueError("Format de composition inconnu.")
         self.project.canvas_format = value
+        self._edited()
+
+    def set_fps(self, value):
+        # Valide avant de modifier le projet ; les positions restent en secondes.
+        timeline = replace(self.project.timeline, fps=value)
+        self.project.timeline = timeline
         self._edited()
 
     def move_layer(self, direction):

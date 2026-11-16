@@ -34,6 +34,47 @@ La timeline règle la position et la durée des clips ; le panneau **Propriété
 permet de changer leur ordre, leur volume ou de les rendre muets.
 Voir le [guide de composition et de lecture](docs/timeline-playback.md).
 
+### Qualité et fluidité du lecteur
+
+Au-dessus du cadre, choisir la cadence du montage : **24, 25, 30, 48, 50, 60,
+90 ou 120 fps**. Les nouveaux projets démarrent à **60 fps** ; les projets existants
+conservent leur cadence enregistrée. Modifier la cadence ne déplace pas les clips
+et ne change pas leur durée. La lecture d'un média source utilise sa propre cadence
+(arrondie à l'entier supérieur, jusqu'à 120 fps).
+
+La qualité de prévisualisation est indépendante de l'export :
+- **HD (720p)** par défaut : compromis entre netteté et fluidité ;
+- **Full HD (1080p)** : plus de détails, davantage de calcul et de mémoire ;
+- **Fluide (360p)** : pour les montages lourds ou les machines moins puissantes.
+
+Le lecteur conserve la résolution choisie jusqu'à la texture d'affichage, avec
+préchargement des images en arrière-plan. La cadence effectivement visible dépend
+du décodage, du nombre de calques, du GPU et du taux de rafraîchissement de l'écran.
+Une source à 30 fps reste à 30 images de mouvement différentes par seconde, même
+dans un montage à 120 fps : aucune interpolation artificielle n'est appliquée.
+
+## Exporter en MP4
+
+Dans l'éditeur, choisir **Fichier → Exporter...**, régler la qualité, puis choisir
+le fichier de destination :
+- **Résolution** : HD, Full HD ou 4K, en conservant le format paysage/portrait/carré
+  du projet (par exemple 3840×2160 en 4K paysage).
+- **Cadence** : celle du projet par défaut, ou une cadence spécifique jusqu'à
+  **120 fps**, sans modifier la timeline.
+- **Qualité** : haute qualité (H.264 CRF 18, medium), maximale (CRF 16, slow),
+  ou rapide (CRF 20, fast). Un CRF plus faible privilégie les détails et produit
+  généralement un fichier plus volumineux.
+
+Le son est encodé en AAC stéréo à 48 kHz, 256 kbit/s, avec les coupes, calques,
+recadrages et volumes du montage. Les espaces entre les clips restent noirs et
+silencieux. L'export travaille à la résolution demandée, indépendamment de la
+qualité du lecteur ; augmenter la résolution ne recrée pas les détails absents
+du média source.
+
+Une fenêtre affiche la progression et permet d'annuler. L'interface reste disponible ;
+l'export conserve le montage tel qu'il était au lancement. Un fichier de destination
+existant est remplacé uniquement si l'export réussit.
+
 ## Tests et qualité
 
 ```bash

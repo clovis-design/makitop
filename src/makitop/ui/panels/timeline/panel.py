@@ -152,8 +152,10 @@ def bind_clip_moved(fn) -> None:
 
 def set_playhead(seconds: float) -> None:
     global _playhead_sec
+    previous_pixel = int(_playhead_sec * _px_per_sec)
     _playhead_sec = seconds
-    _redraw_playhead()
+    if int(seconds * _px_per_sec) != previous_pixel:
+        _redraw_playhead()
 
 
 # ── Tick (appelé chaque frame) ────────────────────────────────────────────────
