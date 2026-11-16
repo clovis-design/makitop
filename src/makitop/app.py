@@ -14,6 +14,7 @@ from makitop.model.media import Media
 from makitop.storage.recent import RecentProjects, config_dir
 from makitop.ui import home, main_window, menu_bar, screens
 from makitop.ui.dialogs import import_media, message, project_file
+from makitop.ui.dialogs.export_video import ExportDialog
 from makitop.ui.panels import media as media_panel
 from makitop.ui.panels import preview, properties
 from makitop.ui.panels import timeline as timeline_panel
@@ -70,8 +71,10 @@ def main() -> None:
         return lambda: None if screens.home_shown() else action()
 
     dpg.create_context()
+    export_dialog = None
     try:
         dpg.configure_app(manual_callback_management=True)
+        export_dialog = ExportDialog(session, executor)
         main_window.build(
             actions={
                 menu_bar.NEW_PROJECT: project_file.new_project,
@@ -79,6 +82,7 @@ def main() -> None:
                 menu_bar.SAVE_PROJECT: editor_only(project_file.save),
                 menu_bar.SAVE_PROJECT_AS: editor_only(project_file.save_dialog),
                 menu_bar.IMPORT_MEDIA: editor_only(import_media.open_dialog),
+                menu_bar.EXPORT_VIDEO: editor_only(export_dialog.open),
                 menu_bar.CLOSE_PROJECT: editor_only(lambda: project_file.close_project(show_home)),
                 menu_bar.QUIT: project_file.quit_app,
             },
@@ -169,9 +173,12 @@ def main() -> None:
                     message.show("Lecture impossible", str(exc))
 
             timeline_panel.tick()
+            export_dialog.tick()
             dpg.render_dearpygui_frame()
 
     finally:
+        if export_dialog is not None:
+            export_dialog.close()
         executor.shutdown(wait=True, cancel_futures=True)
         playback_controller.close()
         dpg.destroy_context()

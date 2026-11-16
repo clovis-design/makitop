@@ -3,6 +3,7 @@ from pathlib import Path
 from threading import Event
 
 import numpy as np
+import pytest
 
 from makitop.application.timeline_playback import TimelinePlaybackController
 from makitop.model.media import Media, MediaKind
@@ -112,4 +113,29 @@ def test_slow_frame_is_not_discarded_forever(monkeypatch):
         assert wait_frame(controller)[0] <= 3
     finally:
         release.set()
+        controller.close()
+
+
+@pytest.mark.parametrize("fps", [60, 120])
+def test_high_cadence_clock_and_bounded_prefetch(monkeypatch, fps):
+    now = [0.0]
+    monkeypatch.setattr("makitop.playback.clock.time.perf_counter", lambda: now[0])
+    controller = TimelinePlaybackController(Renderer())
+    try:
+        montage = project()
+        montage.timeline.fps = fps
+        controller.set_project(montage)
+        assert wait_frame(controller)[0] == 0
+        controller.play()
+        for index in range(1, fps):
+            now[0] = (index + 0.01) / fps
+            deadline = time.monotonic() + 3
+            while controller.displayed != index and time.monotonic() < deadline:
+                controller.poll()
+                time.sleep(0.001)
+            assert controller.displayed == index
+            assert len(controller.pending) <= 25
+        controller.seek(0.1)
+        assert wait_frame(controller)[0] == int(0.1 * fps)
+    finally:
         controller.close()
