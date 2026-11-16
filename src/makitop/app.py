@@ -88,6 +88,27 @@ def main() -> None:
         )
         home.create(on_new=project_file.new_project, on_open=project_file.open_dialog)
         import_media.create(on_files_selected=importer.import_files)
+
+        _SEEK_STEP = 5.0
+
+        def _on_playback_key(sender, key: int) -> None:
+            if screens.home_shown():
+                return
+            if key == dpg.mvKey_Spacebar:
+                if playback_controller.is_playing():
+                    playback_controller.pause()
+                else:
+                    playback_controller.play()
+            elif key == dpg.mvKey_Left:
+                playback_controller.seek(max(0.0, playback_controller.current_time() - _SEEK_STEP))
+            elif key == dpg.mvKey_Right:
+                playback_controller.seek(playback_controller.current_time() + _SEEK_STEP)
+            elif key == dpg.mvKey_Home:
+                playback_controller.seek(0.0)
+
+        with dpg.handler_registry():
+            dpg.add_key_press_handler(callback=_on_playback_key)
+
         preview.bind(editor, composition_error)
         properties.bind(editor, composition_error)
         timeline_panel.bind(editor, composition_error)

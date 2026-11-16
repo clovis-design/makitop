@@ -311,14 +311,16 @@ def _confirm_delete_media(media: Media) -> None:
         dpg.delete_item(dialog_tag)
 
     label = media.path.stem
+    w, h = 360, 120
+    vw, vh = dpg.get_viewport_width(), dpg.get_viewport_height()
     with dpg.window(
         tag=dialog_tag,
         label="Confirmer la suppression",
         modal=True,
         no_resize=True,
-        width=360,
-        height=120,
-        pos=(580, 300),
+        width=w,
+        height=h,
+        pos=((vw - w) // 2, (vh - h) // 2),
     ):
         dpg.add_text(f'Supprimer « {label} » et tous ses clips de la timeline ?')
         dpg.add_spacer(height=8)

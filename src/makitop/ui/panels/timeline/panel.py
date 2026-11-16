@@ -47,12 +47,14 @@ _COLOR_PLAYHEAD = (210, 60, 60, 255)
 _COLOR_CURSOR = (255, 255, 255, 55)
 
 # ── État ──────────────────────────────────────────────────────────────────────
-_clips: list[MediaClip] = []
+# _tracks[0] = piste en haut (priorité la plus haute dans le lecteur)
+_tracks: list[list[MediaClip]] = []
 _playhead_sec: float = 0.0
-_on_seek = None       # Callable[[float], None]
-_on_delete = None     # Callable[[MediaClip], None]
-_on_clip_moved = None # Callable[[MediaClip], None]
-_on_select = None     # Callable[[MediaClip], None]
+_on_seek = None            # Callable[[float], None]
+_on_delete = None          # Callable[[MediaClip], None]
+_on_clip_moved = None      # Callable[[MediaClip], None]  — drag d'un clip
+_on_track_reordered = None # Callable[[], None]           — réordonnancement ▲/▼
+_on_select = None          # Callable[[MediaClip], None]
 _dragging: bool = False
 _drag_clip: MediaClip | None = None
 _drag_offset_px: float = 0.0
@@ -61,12 +63,12 @@ _pending_fit_zoom: bool = False
 
 
 def create() -> None:
-    global _zoom_idx, _px_per_sec, _clips, _playhead_sec
+    global _zoom_idx, _px_per_sec, _tracks, _playhead_sec
     global _dragging, _drag_clip, _drag_offset_px, _selected_clip
-    global _on_delete, _on_clip_moved, _on_select, _pending_fit_zoom
+    global _on_delete, _on_clip_moved, _on_track_reordered, _on_select, _pending_fit_zoom
     _zoom_idx = _DEFAULT_ZOOM_IDX
     _px_per_sec = _ZOOM_LEVELS[_DEFAULT_ZOOM_IDX]
-    _clips = []
+    _tracks = []
     _playhead_sec = 0.0
     _dragging = False
     _drag_clip = None
@@ -74,6 +76,7 @@ def create() -> None:
     _selected_clip = None
     _on_delete = None
     _on_clip_moved = None
+    _on_track_reordered = None
     _on_select = None
     _pending_fit_zoom = False
 
@@ -120,12 +123,26 @@ def create() -> None:
 
 
 def add_clip(clip: MediaClip) -> None:
-    _clips.append(clip)
+    """Ajoute un clip dans la piste correspondante (créée si inexistante)."""
+    for row in _tracks:
+        if row and row[0].track == clip.track:
+            row.append(clip)
+            row.sort(key=lambda c: c.timeline_start)
+            _redraw()
+            return
+    # Nouvelle piste : insérer en respectant l'ordre décroissant de track
+    new_row = [clip]
+    for i, row in enumerate(_tracks):
+        if row and row[0].track < clip.track:
+            _tracks.insert(i, new_row)
+            _redraw()
+            return
+    _tracks.append(new_row)
     _redraw()
 
 
 def clear() -> None:
-    _clips.clear()
+    _tracks.clear()
     _redraw()
 
 
@@ -136,10 +153,11 @@ def fit_zoom() -> None:
 
 def _apply_fit_zoom() -> None:
     global _zoom_idx, _px_per_sec, _pending_fit_zoom
-    if not _clips:
+    all_clips = _all_clips()
+    if not all_clips:
         _pending_fit_zoom = False
         return
-    total_duration = max(c.timeline_end for c in _clips)
+    total_duration = max(c.timeline_end for c in all_clips)
     if total_duration <= 0:
         _pending_fit_zoom = False
         return
@@ -159,7 +177,13 @@ def _apply_fit_zoom() -> None:
 
 
 def get_clip_ids() -> list[str]:
-    return [c.id for c in _clips]
+    """Retourne tous les IDs de clips, piste par piste (haut → bas), chronologiques."""
+    return [c.id for row in _tracks for c in row]
+
+
+def get_track_rows() -> list[list[str]]:
+    """Retourne les IDs de clips groupés par piste (haut → bas)."""
+    return [[c.id for c in row] for row in _tracks]
 
 
 def bind_seek(fn) -> None:
@@ -177,6 +201,11 @@ def bind_clip_moved(fn) -> None:
     _on_clip_moved = fn
 
 
+def bind_track_reordered(fn) -> None:
+    global _on_track_reordered
+    _on_track_reordered = fn
+
+
 def bind_select(fn) -> None:
     global _on_select
     _on_select = fn
@@ -184,7 +213,7 @@ def bind_select(fn) -> None:
 
 def set_selected(clip_id: str | None) -> None:
     global _selected_clip
-    _selected_clip = next((c for c in _clips if c.id == clip_id), None) if clip_id else None
+    _selected_clip = next((c for c in _all_clips() if c.id == clip_id), None) if clip_id else None
     _redraw_static_only()
 
 
@@ -210,8 +239,25 @@ def tick() -> None:
     # Relâchement du bouton
     if not btn_down:
         if _drag_clip is not None:
-            if _on_clip_moved is not None:
-                _on_clip_moved(_drag_clip)
+            rearranged = False
+            for row_idx, row in enumerate(_tracks):
+                if _drag_clip in row:
+                    row.sort(key=lambda c: c.timeline_start)
+                    if _has_overlap(_drag_clip, row):
+                        row.remove(_drag_clip)
+                        if row:
+                            _tracks.insert(row_idx, [_drag_clip])  # nouvelle piste au-dessus
+                        else:
+                            _tracks[row_idx] = [_drag_clip]  # remplace piste vide
+                        rearranged = True
+                    break
+            if rearranged:
+                if _on_track_reordered is not None:
+                    _on_track_reordered()
+                _redraw()
+            else:
+                if _on_clip_moved is not None:
+                    _on_clip_moved(_drag_clip)
             _drag_clip = None
         _dragging = False
 
@@ -224,7 +270,7 @@ def tick() -> None:
         local_x = mx - dl_min[0]
         local_y = my - dl_min[1]
 
-        # Début d'un drag (premier frame avec bouton enfoncé, pas encore actif)
+        # Début d'un drag
         if hovered and btn_down and not active:
             clip = _clip_at(local_x, local_y)
             if clip is not None:
@@ -244,11 +290,11 @@ def tick() -> None:
             _drag_clip.timeline_start = max(0.0, (local_x - _drag_offset_px) / _px_per_sec)
             _redraw_static_only()
 
-        # Seek drag (pas de clip sous le curseur)
+        # Seek drag
         elif _dragging and btn_down and _on_seek is not None:
             _on_seek(max(0.0, local_x / _px_per_sec))
 
-        # Curseur hover (uniquement hors drag de clip)
+        # Curseur hover
         dpg.delete_item(_CURSOR_LAYER, children_only=True)
         if hovered and _drag_clip is None and local_x >= 0:
             dpg.draw_line(
@@ -263,23 +309,39 @@ def tick() -> None:
 
 def _move_track(row: int, direction: int) -> None:
     target = row + direction
-    if not 0 <= target < len(_clips):
+    if not 0 <= target < len(_tracks):
         return
-    _clips[row], _clips[target] = _clips[target], _clips[row]
-    if _on_clip_moved is not None:
-        _on_clip_moved(_clips[target])
+    _tracks[row], _tracks[target] = _tracks[target], _tracks[row]
+    if _on_track_reordered is not None:
+        _on_track_reordered()
     _redraw()
 
 
 def _clip_at(local_x: float, local_y: float) -> "MediaClip | None":
     clip_h = _TRACK_H - 8
-    for i, clip in enumerate(_clips):
-        clip_y = _RULER_H + i * _TRACK_H + 4
-        x = clip.timeline_start * _px_per_sec
-        w = max(2.0, clip.duration * _px_per_sec)
-        if x <= local_x <= x + w and clip_y <= local_y <= clip_y + clip_h:
-            return clip
+    for row_idx, row in enumerate(_tracks):
+        clip_y = _RULER_H + row_idx * _TRACK_H + 4
+        if not (clip_y <= local_y <= clip_y + clip_h):
+            continue
+        for clip in row:
+            x = clip.timeline_start * _px_per_sec
+            w = max(2.0, clip.duration * _px_per_sec)
+            if x <= local_x <= x + w:
+                return clip
     return None
+
+
+def _has_overlap(clip: MediaClip, row: list[MediaClip]) -> bool:
+    for other in row:
+        if other is clip:
+            continue
+        if clip.timeline_start < other.timeline_end and clip.timeline_end > other.timeline_start:
+            return True
+    return False
+
+
+def _all_clips() -> list[MediaClip]:
+    return [c for row in _tracks for c in row]
 
 
 # ── Zoom ──────────────────────────────────────────────────────────────────────
@@ -303,14 +365,15 @@ def _zoom_out() -> None:
 # ── Taille ────────────────────────────────────────────────────────────────────
 
 def _content_height() -> int:
-    return _RULER_H + max(1, len(_clips)) * _TRACK_H
+    return _RULER_H + max(1, len(_tracks)) * _TRACK_H
 
 
 def _content_width() -> int:
     scroll_w = dpg.get_item_rect_size(_SCROLL_TAG)[0] if dpg.does_item_exist(_SCROLL_TAG) else 0
-    if not _clips:
+    all_clips = _all_clips()
+    if not all_clips:
         return max(_MIN_CONTENT_W, scroll_w)
-    max_end = max(c.timeline_end for c in _clips)
+    max_end = max(c.timeline_end for c in all_clips)
     return max(_MIN_CONTENT_W, scroll_w, int(max_end * _px_per_sec) + 200)
 
 
@@ -326,7 +389,7 @@ def _redraw() -> None:
         return
     dpg.delete_item(_STATIC_LAYER, children_only=True)
     _update_headers()
-    if not _clips:
+    if not _all_clips():
         return
     w = _content_width()
     dpg.configure_item(_DRAWLIST_TAG, width=w, height=_content_height())
@@ -336,8 +399,8 @@ def _redraw() -> None:
 
 
 def _redraw_static_only() -> None:
-    """Redessine règle + clips sans reconstruire les headers (utilisé pendant le drag)."""
-    if not dpg.does_item_exist(_STATIC_LAYER) or not _clips:
+    """Redessine règle + clips sans reconstruire les headers."""
+    if not dpg.does_item_exist(_STATIC_LAYER) or not _all_clips():
         return
     dpg.delete_item(_STATIC_LAYER, children_only=True)
     w = _content_width()
@@ -358,8 +421,8 @@ def _update_headers() -> None:
         return
     dpg.delete_item(_HEADERS_TAG, children_only=True)
     dpg.add_spacer(height=_RULER_H + 2, parent=_HEADERS_TAG)
-    n = len(_clips)
-    for i, clip in enumerate(_clips):
+    n = len(_tracks)
+    for i, row in enumerate(_tracks):
         with dpg.child_window(
             height=_TRACK_H,
             width=-1,
@@ -381,11 +444,14 @@ def _update_headers() -> None:
                     )
                 # Colonne droite : nom + bouton ×
                 with dpg.group():
-                    label = _truncate(clip.media.path.stem, _HEADER_W - 36)
+                    if len(row) == 1:
+                        label = _truncate(row[0].media.path.stem, _HEADER_W - 36)
+                    else:
+                        label = f"Piste {i + 1} ({len(row)} clips)"
                     dpg.add_text(label)
                     dpg.add_button(
                         label="×", width=18, height=18,
-                        callback=_on_delete_btn, user_data=clip,
+                        callback=_on_delete_track_btn, user_data=i,
                     )
             if i == 0:
                 dpg.configure_item(up_btn, show=False)
@@ -401,32 +467,40 @@ def _on_move_down_btn(sender, app_data, row: int) -> None:
     _move_track(row, +1)
 
 
-def _on_delete_btn(sender, app_data, clip: MediaClip) -> None:
-    _confirm_delete(clip)
+def _on_delete_track_btn(sender, app_data, track_idx: int) -> None:
+    if 0 <= track_idx < len(_tracks):
+        _confirm_delete_track(track_idx)
 
 
-def _confirm_delete(clip: MediaClip) -> None:
+def _confirm_delete_track(track_idx: int) -> None:
     dialog_tag = "timeline_confirm_delete"
     if dpg.does_item_exist(dialog_tag):
         dpg.delete_item(dialog_tag)
 
-    label = clip.media.path.stem
+    row = _tracks[track_idx]
+    if len(row) == 1:
+        msg = f'Supprimer « {row[0].media.path.stem} » de la timeline ?'
+    else:
+        msg = f'Supprimer la piste et ses {len(row)} clips de la timeline ?'
+
+    w, h = 320, 110
+    vw, vh = dpg.get_viewport_width(), dpg.get_viewport_height()
     with dpg.window(
         tag=dialog_tag,
         label="Confirmer la suppression",
         modal=True,
         no_resize=True,
-        width=320,
-        height=110,
-        pos=(600, 300),
+        width=w,
+        height=h,
+        pos=((vw - w) // 2, (vh - h) // 2),
     ):
-        dpg.add_text(f'Supprimer « {label} » de la timeline ?')
+        dpg.add_text(msg)
         dpg.add_spacer(height=8)
         with dpg.group(horizontal=True):
             dpg.add_button(
                 label="Supprimer",
                 width=100,
-                callback=lambda: _do_delete(clip, dialog_tag),
+                callback=lambda: _do_delete_track(track_idx, dialog_tag),
             )
             dpg.add_button(
                 label="Annuler",
@@ -435,12 +509,15 @@ def _confirm_delete(clip: MediaClip) -> None:
             )
 
 
-def _do_delete(clip: MediaClip, dialog_tag: str) -> None:
+def _do_delete_track(track_idx: int, dialog_tag: str) -> None:
     dpg.delete_item(dialog_tag)
-    if clip in _clips:
-        _clips.remove(clip)
+    if not (0 <= track_idx < len(_tracks)):
+        return
+    clips_to_delete = list(_tracks[track_idx])
+    del _tracks[track_idx]
     if _on_delete is not None:
-        _on_delete(clip)
+        for clip in clips_to_delete:
+            _on_delete(clip)
     _redraw()
 
 
@@ -451,7 +528,6 @@ def _draw_ruler(total_w: int) -> None:
         color=(0, 0, 0, 0),
         parent=_STATIC_LAYER,
     )
-    # Espacement adaptatif : évite de surcharger la règle à faible zoom
     if _px_per_sec >= 50:
         minor_step, major_step = 1, 5
     elif _px_per_sec >= 10:
@@ -485,38 +561,39 @@ def _draw_clips() -> None:
     clip_h = _TRACK_H - 8
     th_w = int(clip_h * THUMB_W / THUMB_H)
 
-    for i, clip in enumerate(_clips):
-        clip_y = _RULER_H + i * _TRACK_H + 4
-        x = int(clip.timeline_start * _px_per_sec)
-        w = max(2, int(clip.duration * _px_per_sec))
+    for row_idx, row in enumerate(_tracks):
+        clip_y = _RULER_H + row_idx * _TRACK_H + 4
+        for clip in row:
+            x = int(clip.timeline_start * _px_per_sec)
+            w = max(2, int(clip.duration * _px_per_sec))
 
-        border = _COLOR_CLIP_SELECTED if clip is _selected_clip else _COLOR_CLIP_BORDER
-        dpg.draw_rectangle(
-            (x, clip_y), (x + w, clip_y + clip_h),
-            fill=_COLOR_CLIP_FILL,
-            color=border,
-            thickness=2 if clip is _selected_clip else 1,
-            parent=_STATIC_LAYER,
-        )
-
-        texture_tag = f"texture_{clip.media.id}"
-        if dpg.does_item_exist(texture_tag) and w >= 8:
-            img_w = min(th_w, w)
-            dpg.draw_image(
-                texture_tag,
-                (x, clip_y),
-                (x + img_w, clip_y + clip_h),
+            border = _COLOR_CLIP_SELECTED if clip is _selected_clip else _COLOR_CLIP_BORDER
+            dpg.draw_rectangle(
+                (x, clip_y), (x + w, clip_y + clip_h),
+                fill=_COLOR_CLIP_FILL,
+                color=border,
+                thickness=2 if clip is _selected_clip else 1,
                 parent=_STATIC_LAYER,
             )
 
-        if w >= 40:
-            dpg.draw_text(
-                (x + 5, clip_y + clip_h // 2 - 6),
-                clip.media.path.stem,
-                color=_COLOR_CLIP_TEXT,
-                size=12,
-                parent=_STATIC_LAYER,
-            )
+            texture_tag = f"texture_{clip.media.id}"
+            if dpg.does_item_exist(texture_tag) and w >= 8:
+                img_w = min(th_w, w)
+                dpg.draw_image(
+                    texture_tag,
+                    (x, clip_y),
+                    (x + img_w, clip_y + clip_h),
+                    parent=_STATIC_LAYER,
+                )
+
+            if w >= 40:
+                dpg.draw_text(
+                    (x + 5, clip_y + clip_h // 2 - 6),
+                    clip.media.path.stem,
+                    color=_COLOR_CLIP_TEXT,
+                    size=12,
+                    parent=_STATIC_LAYER,
+                )
 
 
 def _draw_playhead() -> None:

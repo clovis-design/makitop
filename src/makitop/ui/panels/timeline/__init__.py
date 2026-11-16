@@ -1,9 +1,28 @@
 """Panneau timeline : API publique conservée pour l'assemblage de la fenêtre."""
 
 from makitop.model.timeline import MediaClip
-from makitop.ui.panels.timeline.panel import TAG, add_clip, bind_clip_moved, bind_delete, bind_seek, bind_select, clear, create, fit_zoom, get_clip_ids, set_playhead, set_selected, tick
+from makitop.ui.panels.timeline.panel import (
+    TAG,
+    add_clip,
+    bind_clip_moved,
+    bind_delete,
+    bind_seek,
+    bind_select,
+    bind_track_reordered,
+    clear,
+    create,
+    fit_zoom,
+    get_clip_ids,
+    get_track_rows,
+    set_playhead,
+    set_selected,
+    tick,
+)
 
-__all__ = ["TAG", "add_clip", "bind", "bind_clip_moved", "bind_delete", "bind_seek", "clear", "create", "refresh", "set_playhead", "tick"]
+__all__ = [
+    "TAG", "add_clip", "bind", "bind_clip_moved", "bind_delete", "bind_seek",
+    "clear", "create", "refresh", "set_playhead", "tick",
+]
 
 _editor = None
 _last_project_id: int | None = None
@@ -14,7 +33,8 @@ def bind(editor, on_error=None) -> None:
     _editor = editor
     bind_seek(editor.seek)
     bind_delete(lambda clip: _bridge_delete(editor, clip))
-    bind_clip_moved(lambda clip: _bridge_moved(editor, clip))
+    bind_clip_moved(lambda clip: _bridge_drag(editor, clip))
+    bind_track_reordered(lambda: _bridge_reorder(editor))
     bind_select(lambda clip: editor.select(clip.id))
 
 
@@ -41,16 +61,26 @@ def _bridge_delete(editor, clip) -> None:
     editor._edited()
 
 
-def _bridge_moved(editor, clip) -> None:
-    ordered_ids = get_clip_ids()
+def _bridge_drag(editor, clip) -> None:
+    """Le clip a déjà été modifié en place (timeline_start mis à jour)."""
+    editor._edited()
+
+
+def _bridge_reorder(editor) -> None:
+    """Réordonnancement de pistes via ▲/▼ : met à jour track et l'ordre des clips."""
+    track_rows = get_track_rows()  # list[list[str]], haut → bas
     id_to_clip = {c.id: c for c in editor.project.timeline.clips}
-    panel_set = set(ordered_ids)
-    new_order = [id_to_clip[cid] for cid in ordered_ids if cid in id_to_clip]
+    n_tracks = len(track_rows)
+    # Piste en haut (index 0) = valeur track la plus haute = devant dans le lecteur
+    for row_idx, row_ids in enumerate(track_rows):
+        track_val = n_tracks - 1 - row_idx
+        for cid in row_ids:
+            if cid in id_to_clip:
+                id_to_clip[cid].track = track_val
+    # Synchroniser l'ordre de editor.project.timeline.clips
+    all_ids = [cid for row in track_rows for cid in row]
+    panel_set = set(all_ids)
+    new_order = [id_to_clip[cid] for cid in all_ids if cid in id_to_clip]
     new_order += [c for c in editor.project.timeline.clips if c.id not in panel_set]
     editor.project.timeline.clips[:] = new_order
-    # Index 0 (haut) = track le plus élevé = devant dans le lecteur
-    n = len(ordered_ids)
-    for idx, cid in enumerate(ordered_ids):
-        if cid in id_to_clip:
-            id_to_clip[cid].track = n - 1 - idx
     editor._edited()
