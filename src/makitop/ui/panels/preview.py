@@ -16,6 +16,9 @@ CANVAS = "preview_canvas"
 OVERLAY = "preview_selection"
 PREVIEW_WIDTH = 640
 PREVIEW_HEIGHT = 360
+TEXTURES = "preview_textures"
+FPS_CHOICES = ["24", "25", "30", "48", "50", "60", "90", "120"]
+PREVIEW_QUALITIES = {"Fluide (360p)": 360, "HD (720p)": 720, "Full HD (1080p)": 1080}
 TRANSPORT_SPACER = "transport_spacer"
 TRANSPORT_THEME = "transport_theme"
 PLAY_BUTTON = "transport_play"
@@ -30,6 +33,10 @@ _gesture = None
 _size = (640, 360)
 _available = (640, 360)
 _time = 0.0
+_texture = VIDEO_TEXTURE_TAG
+_pixels = None
+_rgba8 = None
+_selection_key = None
 
 
 def bind(editor, on_error):
@@ -53,18 +60,37 @@ def clear():
 
 
 def create_video_texture():
-    with dpg.texture_registry():
-        dpg.add_dynamic_texture(
+    global _texture, _pixels, _rgba8
+    _texture = VIDEO_TEXTURE_TAG
+    _pixels = np.zeros((PREVIEW_HEIGHT, PREVIEW_WIDTH, 4), dtype=np.float32)
+    _pixels[:, :, 3] = 1
+    _rgba8 = np.empty((PREVIEW_HEIGHT, PREVIEW_WIDTH, 4), dtype=np.uint8)
+    with dpg.texture_registry(tag=TEXTURES):
+        dpg.add_raw_texture(
             width=PREVIEW_WIDTH, height=PREVIEW_HEIGHT,
-            default_value=np.zeros(PREVIEW_WIDTH * PREVIEW_HEIGHT * 4, dtype=np.float32),
+            default_value=_pixels.ravel(), format=dpg.mvFormat_Float_rgba,
             tag=VIDEO_TEXTURE_TAG,
         )
 
 
 def update_frame(frame):
-    rgb = cv2.resize(frame, (PREVIEW_WIDTH, PREVIEW_HEIGHT)).astype(np.float32) / 255
-    rgba = np.concatenate((rgb, np.ones((PREVIEW_HEIGHT, PREVIEW_WIDTH, 1))), axis=2)
-    dpg.set_value(VIDEO_TEXTURE_TAG, rgba.astype(np.float32).ravel())
+    global _texture, _pixels, _rgba8
+    height, width = frame.shape[:2]
+    if _pixels.shape[:2] != (height, width):
+        pixels = np.empty((height, width, 4), dtype=np.float32)
+        pixels[:, :, 3] = 1
+        texture = dpg.add_raw_texture(
+            width, height, pixels.ravel(), format=dpg.mvFormat_Float_rgba, parent=TEXTURES,
+        )
+        if dpg.does_item_exist(VIDEO_IMAGE_TAG):
+            dpg.configure_item(VIDEO_IMAGE_TAG, texture_tag=texture)
+        dpg.delete_item(_texture)
+        _texture, _pixels = texture, pixels
+        _rgba8 = np.empty((height, width, 4), dtype=np.uint8)
+    # Buffer float32 réutilisé directement par la texture : ni redimensionnement
+    # à 640×360, ni tableau float64 intermédiaire, ni copie Python par pixel.
+    cv2.cvtColor(frame, cv2.COLOR_RGB2RGBA, dst=_rgba8)
+    np.multiply(_rgba8, np.float32(1 / 255), out=_pixels)
 
 
 def format_time(seconds):
@@ -143,6 +169,12 @@ def create(playback=None):
     _transport_theme()
     with dpg.child_window(tag=TAG, border=True):
         with dpg.group(horizontal=True):
+            dpg.add_combo(FPS_CHOICES, default_value="60", width=65,
+                          tag="composition_fps", callback=_fps_changed)
+            dpg.add_text("fps")
+            dpg.add_combo(list(PREVIEW_QUALITIES), default_value="HD (720p)", width=145,
+                          tag="preview_quality", callback=_quality_changed)
+        with dpg.group(horizontal=True):
             dpg.add_text("Composition", tag="preview_mode")
             dpg.add_combo(list(FORMATS), default_value="16:9", width=85,
                           tag="composition_format", callback=_format_changed)
@@ -154,7 +186,7 @@ def create(playback=None):
             dpg.add_text("Glissez un média ici")
         with dpg.group(tag="composition_drop", payload_type="MAKITOP_MEDIA", drop_callback=_drop):
             dpg.add_drawlist(width=640, height=360, tag=CANVAS)
-        dpg.draw_image(VIDEO_TEXTURE_TAG, (0, 0), _size, tag=VIDEO_IMAGE_TAG, parent=CANVAS)
+        dpg.draw_image(_texture, (0, 0), _size, tag=VIDEO_IMAGE_TAG, parent=CANVAS)
         with dpg.draw_layer(tag=OVERLAY, parent=CANVAS):
             pass
         with dpg.group(horizontal=True) as transport:
@@ -178,7 +210,7 @@ def create(playback=None):
 
 def resize(width, height):
     global _available, _size
-    _available = (max(40, width - 20), max(40, height - 118))
+    _available = (max(40, width - 20), max(40, height - 145))
     ratio = _editor.project.canvas_ratio if _editor else 16 / 9
     w = min(_available[0], _available[1] * ratio)
     _size = (max(1, round(w)), max(1, round(w / ratio)))
@@ -192,9 +224,12 @@ def refresh():
     if _editor is None:
         return
     dpg.set_value("composition_format", _editor.project.canvas_format)
+    playing_project = _editor.playback.project or _editor.project
+    dpg.set_value("composition_fps", str(playing_project.timeline.fps))
+    dpg.configure_item("composition_fps", enabled=not _editor.source_mode)
     dpg.set_value("preview_mode", "Source" if _editor.source_mode else "Montage")
     initFinalTime(_editor.playback.duration)
-    resize(_available[0] + 20, _available[1] + 118)
+    resize(_available[0] + 20, _available[1] + 145)
 
 
 def _bounds(clip):
@@ -212,14 +247,22 @@ def _handles(bounds):
 
 
 def _draw_selection():
+    global _selection_key
+    clip = _editor.selected if _editor is not None and not _editor.source_mode else None
+    if clip is not None and not (clip.timeline_start <= _time < clip.timeline_end):
+        clip = None
+    bounds = _bounds(clip) if clip is not None else None
+    key = (_size, bounds, dpg.get_value("composition_crop"))
+    if key == _selection_key:
+        return
+    _selection_key = key
     dpg.delete_item(OVERLAY, children_only=True)
     dpg.draw_rectangle((0, 0), _size, color=(110, 115, 125, 255), parent=OVERLAY)
     if _editor is None or _editor.source_mode:
         return
-    clip = _editor.selected
-    if clip is None or not (clip.timeline_start <= _time < clip.timeline_end):
+    if clip is None:
         return
-    x, y, w, h = bounds = _bounds(clip)
+    x, y, w, h = bounds
     sw, sh = _size
     color = (245, 180, 60, 255) if dpg.get_value("composition_crop") else (80, 180, 255, 255)
     dpg.draw_rectangle((x * sw, y * sh), ((x + w) * sw, (y + h) * sh),
@@ -288,3 +331,13 @@ def _drop(sender, app_data):
 def _format_changed(sender, value):
     if _editor is not None:
         _call(lambda: _editor.set_format(value))
+
+
+def _fps_changed(sender, value):
+    if _editor is not None:
+        _call(lambda: _editor.set_fps(int(value)))
+
+
+def _quality_changed(sender, value):
+    if _editor is not None:
+        _call(lambda: _editor.playback.set_preview_height(PREVIEW_QUALITIES[value]))

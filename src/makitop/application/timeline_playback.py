@@ -65,6 +65,13 @@ class TimelinePlaybackController:
     def current_time(self):
         return min(self.clock.current_time(), self.duration)
 
+    def set_preview_height(self, height):
+        if height not in (360, 720, 1080):
+            raise ValueError("Qualité de prévisualisation inconnue.")
+        self._discard()
+        # Le moteur appartient au worker ; aucun changement concurrent de taille.
+        self.executor.submit(self.renderer.set_preview_height, height)
+
     def is_playing(self):
         return self.clock.playing
 
@@ -79,12 +86,9 @@ class TimelinePlaybackController:
             self.clock.seek(self.duration)
         last = max(0, math.ceil(self.duration * fps - 1e-9) - 1)
         index = min(int(self.current_time() * fps), last)
-        wanted = range(index, min(last + 1, index + (8 if self.is_playing() else 1)))
-        for target in wanted:
-            if target not in self.pending:
-                self.pending[target] = self.executor.submit(
-                    self.renderer.render, self.project, target
-                )
+        # Environ 200 ms d'avance, y compris à 60/120 fps, avec mémoire bornée.
+        ahead = min(24, max(2, math.ceil(fps * 0.2))) if self.is_playing() else 1
+        wanted = range(index, min(last + 1, index + ahead))
         # Si le décodage est lent, afficher le dernier résultat dû plutôt que
         # jeter chaque image en retard et rester indéfiniment sur la première.
         ready = [i for i, f in self.pending.items() if i <= index and f.done()
@@ -96,6 +100,13 @@ class TimelinePlaybackController:
             if old not in wanted and not task.running():
                 task.cancel()
                 del self.pending[old]
+        # Annuler le retard AVANT de soumettre les nouvelles images, pour que
+        # le worker ne perde pas du temps à décoder une file déjà obsolète.
+        for target in wanted:
+            if target not in self.pending and target != self.displayed:
+                self.pending[target] = self.executor.submit(
+                    self.renderer.render, self.project, target
+                )
         if future is not None:
             try:
                 image = future.result()
