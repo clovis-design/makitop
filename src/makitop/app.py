@@ -15,6 +15,7 @@ from makitop.storage.recent import RecentProjects, config_dir
 from makitop.ui import home, main_window, menu_bar, screens
 from makitop.ui.dialogs import import_media, message, project_file
 from makitop.ui.dialogs.export_video import ExportDialog
+from makitop.ui.panels import effects as effects_panel
 from makitop.ui.panels import media as media_panel
 from makitop.ui.panels import preview, properties
 from makitop.ui.panels import timeline as timeline_panel
@@ -55,12 +56,19 @@ def main() -> None:
         except ValueError as exc:
             composition_error(str(exc))
 
+    def apply_effect(kind: str) -> None:
+        try:
+            editor.add_effect(kind)
+        except ValueError as exc:
+            composition_error(str(exc))
+
     def refresh_project_media() -> None:
         preview.clear()
         timeline_panel.clear()
         _show_project_media(session, executor)
         editor.selected_id = None
-        editor.show_montage(0)
+        # On reprend là où le projet a été laissé (position enregistrée avec le projet).
+        editor.show_montage(session.project.view.playhead)
 
     def show_home() -> None:
         playback_controller.pause()
@@ -92,14 +100,37 @@ def main() -> None:
         )
         home.create(on_new=project_file.new_project, on_open=project_file.open_dialog)
         import_media.create(on_files_selected=importer.import_files)
+
+        _SEEK_STEP = 5.0
+
+        def _on_playback_key(sender, key: int) -> None:
+            if screens.home_shown():
+                return
+            if key == dpg.mvKey_Spacebar:
+                if playback_controller.is_playing():
+                    playback_controller.pause()
+                else:
+                    playback_controller.play()
+            elif key == dpg.mvKey_Left:
+                playback_controller.seek(max(0.0, playback_controller.current_time() - _SEEK_STEP))
+            elif key == dpg.mvKey_Right:
+                playback_controller.seek(playback_controller.current_time() + _SEEK_STEP)
+            elif key == dpg.mvKey_Home:
+                playback_controller.seek(0.0)
+
+        with dpg.handler_registry():
+            dpg.add_key_press_handler(callback=_on_playback_key)
+
         preview.bind(editor, composition_error)
         properties.bind(editor, composition_error)
         timeline_panel.bind(editor, composition_error)
+        effects_panel.bind(apply_effect)
         editor.on_refresh = refresh_editor
         editor.show_montage(0)
         project_file.create(session)
 
         importer.on_failed(import_media.show_error)
+        importer.on_imported(media_panel.add_media)
 
         def _on_media_deleted(media: Media) -> None:
             project = session.project
@@ -131,11 +162,13 @@ def main() -> None:
         dpg.set_viewport_resize_callback(lambda: screens.resize())
         dpg.setup_dearpygui()
         dpg.show_viewport()
+        _poll_error_shown = False
         show_home()
         while dpg.is_dearpygui_running():
             dpg.run_callbacks(dpg.get_callback_queue())
 
             current_time = playback_controller.current_time()
+            editor.sync_playhead()
             preview.update_time(current_time)
             timeline_panel.set_playhead(0 if editor.source_mode else current_time)
 
@@ -143,9 +176,12 @@ def main() -> None:
                 frame = playback_controller.poll()
                 if frame is not None:
                     preview.update_frame(frame)
+                _poll_error_shown = False
             except Exception as exc:
                 log.exception("Rendu impossible")
-                message.show("Lecture impossible", str(exc))
+                if not _poll_error_shown:
+                    _poll_error_shown = True
+                    message.show("Lecture impossible", str(exc))
 
             timeline_panel.tick()
             export_dialog.tick()

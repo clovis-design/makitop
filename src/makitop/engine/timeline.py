@@ -8,7 +8,9 @@ from PIL import Image, ImageOps
 
 from makitop.engine.cache import FrameCache
 from makitop.engine.decoder import MediaDecoder
+from makitop.engine.effects import video as video_effects
 from makitop.model.composition import FORMATS, fitted_bounds
+from makitop.model.effects import TIME_DEPENDENT
 from makitop.model.media import MediaKind
 from makitop.model.timeline import ImageClip
 
@@ -37,21 +39,27 @@ class TimelineRenderer:
             )
         clips = [c for c in project.timeline.clips_at(time) if c.media.kind != MediaKind.AUDIO]
         sources = []
+        local_times = [time - c.timeline_start for c in clips]
         for clip in clips:
             stat = clip.media.path.stat()
             identity = (str(clip.media.path.resolve()), stat.st_mtime_ns, stat.st_size)
             source_time = (None if isinstance(clip, ImageClip) else
                            max(clip.source_start, clip.source_start + time - clip.timeline_start))
             sources.append((identity, None if source_time is None else round(source_time, 9)))
-        key = ("composition", width, height,
-               tuple((s, c.transform, c.track) for s, c in zip(sources, clips, strict=True)))
+        # Une image fixe avec un effet animé change à chaque frame : le temps local
+        # du clip fait alors partie de la clé.
+        key = ("composition", width, height, tuple(
+            (s, c.transform, c.track, c.effects,
+             round(t, 6) if any(e.kind in TIME_DEPENDENT for e in c.effects) else None)
+            for s, c, t in zip(sources, clips, local_times, strict=True)))
         cached = self.cache.get(key)
         if cached is not None:
             return cached
         result = np.zeros((height, width, 3), dtype=np.uint8)
-        for clip, (identity, source_time) in zip(clips, sources, strict=True):
+        for clip, (identity, source_time), local_t in zip(clips, sources, local_times, strict=True):
             image = self._source(clip, identity, source_time)
-            self._composite(result, image, clip.transform)
+            self._composite(result, image, clip.transform, clip.effects,
+                            local_t, clip.duration, frame_index)
         self.cache.put(key, result)
         return result
 
@@ -85,7 +93,7 @@ class TimelineRenderer:
         return image
 
     @staticmethod
-    def _composite(canvas, image, transform):
+    def _composite(canvas, image, transform, effects=(), local_t=0.0, duration=1.0, frame_index=0):
         height, width = canvas.shape[:2]
         h, w = image.shape[:2]
         x, y, box_w, box_h = fitted_bounds(transform, w, h, width / height)
@@ -100,13 +108,12 @@ class TimelineRenderer:
         x0, y0, x1, y1 = max(0, x), max(0, y), min(width, x + w), min(height, y + h)
         if x1 <= x0 or y1 <= y0:
             return
-        if (w, h) != (image.shape[1], image.shape[0]):
-            # AREA évite le moiré en réduction ; Lanczos conserve les détails
-            # lors d'un agrandissement, à la place du bilinéaire par défaut.
-            interpolation = (cv2.INTER_AREA if w <= image.shape[1] and h <= image.shape[0]
-                             else cv2.INTER_LANCZOS4)
-            image = cv2.resize(image, (w, h), interpolation=interpolation)
-        scaled = image[y0 - y:y1 - y, x0 - x:x1 - x]
+        interpolation = (cv2.INTER_AREA if w <= image.shape[1] and h <= image.shape[0]
+                         else cv2.INTER_LANCZOS4)
+        resized = cv2.resize(image, (w, h), interpolation=interpolation)
+        # Effets appliqués à la taille d'affichage : leur coût ne dépend pas de la source.
+        scaled = video_effects.apply(resized, effects, local_t, duration,
+                                     frame_index)[y0 - y:y1 - y, x0 - x:x1 - x]
         target = canvas[y0:y1, x0:x1]
         if scaled.shape[2] == 4:
             alpha = scaled[:, :, 3:4].astype(np.float32) / 255

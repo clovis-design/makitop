@@ -8,6 +8,7 @@ import dearpygui.dearpygui as dpg
 
 from makitop.media import thumbnails
 from makitop.model.media import Media, MediaKind
+from makitop.ui.panels import effects as effects_panel
 
 TAG = "media_panel"
 TITLE_TAG = "media_panel_title"
@@ -32,6 +33,7 @@ _BADGE_SIZE = 13
 SECTIONS: list[tuple[str, str]] = [
     ("imports", "Médias importés"),
     ("bibliotheque", "Bibliothèque"),
+    ("effects", "Effets"),
     ("text", "Texte"),
     ("transitions", "Transitions"),
 ]
@@ -222,7 +224,9 @@ def create(
                         
                         dpg.add_spacer(height=8)
                         dpg.add_group(tag=_GRID_TAG)
-                    
+                    elif key == "effects":
+                        effects_panel.build()
+
     dpg.bind_item_handler_registry(TAG, _PANEL_HANDLER)
 
 
@@ -311,14 +315,16 @@ def _confirm_delete_media(media: Media) -> None:
         dpg.delete_item(dialog_tag)
 
     label = media.path.stem
+    w, h = 360, 120
+    vw, vh = dpg.get_viewport_width(), dpg.get_viewport_height()
     with dpg.window(
         tag=dialog_tag,
         label="Confirmer la suppression",
         modal=True,
         no_resize=True,
-        width=360,
-        height=120,
-        pos=(580, 300),
+        width=w,
+        height=h,
+        pos=((vw - w) // 2, (vh - h) // 2),
     ):
         dpg.add_text(f'Supprimer « {label} » et tous ses clips de la timeline ?')
         dpg.add_spacer(height=8)

@@ -5,6 +5,7 @@ import dearpygui.dearpygui as dpg
 import numpy as np
 
 from makitop.model.composition import FORMATS, drag_transform, fitted_bounds
+from makitop.ui.panels import transport_icons
 
 TAG = "preview_panel"
 VIDEO_TEXTURE_TAG = "video_texture"
@@ -18,8 +19,15 @@ PREVIEW_HEIGHT = 360
 TEXTURES = "preview_textures"
 FPS_CHOICES = ["24", "25", "30", "48", "50", "60", "90", "120"]
 PREVIEW_QUALITIES = {"Fluide (360p)": 360, "HD (720p)": 720, "Full HD (1080p)": 1080}
+TRANSPORT_SPACER = "transport_spacer"
+TRANSPORT_THEME = "transport_theme"
+PLAY_BUTTON = "transport_play"
+# Largeur approximative des boutons + temps, pour centrer la barre.
+TRANSPORT_WIDTH = 250
 
 _editor = None
+_playback = None
+_shown_playing = False
 _on_error = None
 _gesture = None
 _size = (640, 360)
@@ -92,22 +100,73 @@ def format_time(seconds):
 def update_time(seconds):
     global _time
     _time = seconds
-    text = format_time(seconds)
-    if dpg.get_value(TIME_TEXT_TAG) != text:
-        dpg.set_value(TIME_TEXT_TAG, text)
+    dpg.set_value(TIME_TEXT_TAG, format_time(seconds))
+    _sync_play_icon()
     if dpg.does_item_exist(OVERLAY):
         _draw_selection()
+
+
+def _sync_play_icon():
+    """Bascule ▶/⏸ seulement quand l'état de lecture change (fin de timeline, clic…)."""
+    global _shown_playing
+    playing = bool(_playback is not None and _playback.is_playing())
+    if playing != _shown_playing and dpg.does_item_exist(PLAY_BUTTON):
+        _shown_playing = playing
+        dpg.configure_item(PLAY_BUTTON, texture_tag=transport_icons.texture_tag(
+            "pause" if playing else "play"))
 
 
 def initFinalTime(seconds):
     dpg.set_value(FINAL_TIME_TEXT_TAG, format_time(seconds))
 
 
-def create(on_play=None, on_pause=None, on_stop=None):
-    global _editor, _gesture, _size, _available, _time, _selection_key
-    _selection_key = None
+def _go_start():
+    if _playback is not None:
+        _call(lambda: _playback.seek(0))
+
+
+def _stop():
+    if _playback is not None:
+        _call(_playback.stop)
+
+
+def _toggle_play():
+    if _playback is not None:
+        _call(_playback.pause if _playback.is_playing() else _playback.play)
+        _sync_play_icon()
+
+
+def _go_end():
+    if _playback is not None:
+        _call(lambda: _playback.seek(_playback.duration))
+
+
+def _transport_theme():
+    if dpg.does_alias_exist(TRANSPORT_THEME):
+        return
+    with dpg.theme(tag=TRANSPORT_THEME):
+        with dpg.theme_component(dpg.mvImageButton):
+            dpg.add_theme_color(dpg.mvThemeCol_Button, (0, 0, 0, 0))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (60, 66, 95))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (41, 74, 122))
+            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 4)
+            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 6, 4)
+
+
+def _transport_button(name, tag, tooltip, callback):
+    dpg.add_image_button(transport_icons.texture_tag(name), tag=tag, callback=callback,
+                         width=transport_icons.ICON_SIZE, height=transport_icons.ICON_SIZE)
+    with dpg.tooltip(tag):
+        dpg.add_text(tooltip)
+
+
+def create(playback=None):
+    global _editor, _playback, _shown_playing, _gesture, _size, _available, _time
     _editor, _gesture, _time = None, None, 0
+    _playback, _shown_playing = playback, False
     _size, _available = (640, 360), (640, 360)
+    transport_icons.load_textures()
+    _transport_theme()
     with dpg.child_window(tag=TAG, border=True):
         with dpg.group(horizontal=True):
             dpg.add_combo(FPS_CHOICES, default_value="60", width=65,
@@ -130,10 +189,14 @@ def create(on_play=None, on_pause=None, on_stop=None):
         dpg.draw_image(_texture, (0, 0), _size, tag=VIDEO_IMAGE_TAG, parent=CANVAS)
         with dpg.draw_layer(tag=OVERLAY, parent=CANVAS):
             pass
-        with dpg.group(horizontal=True):
-            dpg.add_button(label="Play", callback=on_play)
-            dpg.add_button(label="Pause", callback=on_pause)
-            dpg.add_button(label="Stop", callback=on_stop)
+        with dpg.group(horizontal=True) as transport:
+            dpg.bind_item_theme(transport, TRANSPORT_THEME)
+            dpg.add_spacer(width=0, tag=TRANSPORT_SPACER)
+            _transport_button("start", "transport_start", "Aller au début", _go_start)
+            _transport_button("stop", "transport_stop", "Arrêter", _stop)
+            _transport_button("play", PLAY_BUTTON, "Lecture / Pause", _toggle_play)
+            _transport_button("end", "transport_end", "Aller à la fin", _go_end)
+            dpg.add_spacer(width=8)
             dpg.add_text("00:00", tag=TIME_TEXT_TAG)
             dpg.add_text("/")
             dpg.add_text("00:00", tag=FINAL_TIME_TEXT_TAG)
@@ -153,6 +216,7 @@ def resize(width, height):
     _size = (max(1, round(w)), max(1, round(w / ratio)))
     dpg.configure_item(CANVAS, width=_size[0], height=_size[1])
     dpg.configure_item(VIDEO_IMAGE_TAG, pmax=_size)
+    dpg.configure_item(TRANSPORT_SPACER, width=max(0, (_available[0] - TRANSPORT_WIDTH) // 2))
     _draw_selection()
 
 
