@@ -5,10 +5,11 @@ from __future__ import annotations
 import math
 import uuid
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from makitop.model.composition import Transform
 from makitop.model.effects import Effect
+from makitop.model.keyframes import Keyframe, value_at
 from makitop.model.media import Media
 
 
@@ -21,8 +22,15 @@ class BaseClip(ABC):
     volume: float = 1.0
     muted: bool = False
     effects: tuple[Effect, ...] = ()
+    keyframes: tuple[Keyframe, ...] = ()
 
     def __post_init__(self):
+        if not isinstance(self.keyframes, tuple) or not all(
+            isinstance(k, Keyframe) for k in self.keyframes
+        ):
+            raise ValueError("Liste d'images clés invalide.")
+        if len({(k.property, k.time) for k in self.keyframes}) != len(self.keyframes):
+            raise ValueError("Images clés dupliquées.")
         if not isinstance(self.effects, tuple) or not all(
             isinstance(e, Effect) for e in self.effects
         ):
@@ -48,6 +56,17 @@ class BaseClip(ABC):
     @property
     def duration(self) -> float:
         return self.timeline_end - self.timeline_start  # type: ignore[attr-defined]
+
+    def transform_at(self, local_time):
+        if not self.keyframes:
+            return self.transform
+        return replace(self.transform, **{
+            name: value_at(self.keyframes, name, local_time, getattr(self.transform, name))
+            for name in ("x", "y", "width", "height")
+        })
+
+    def volume_at(self, local_time):
+        return value_at(self.keyframes, "volume", local_time, self.volume)
 
 
 @dataclass

@@ -170,6 +170,7 @@ def main() -> None:
             current_time = playback_controller.current_time()
             editor.sync_playhead()
             preview.update_time(current_time)
+            properties.tick(current_time)
             timeline_panel.set_playhead(0 if editor.source_mode else current_time)
 
             try:
@@ -184,6 +185,7 @@ def main() -> None:
                     message.show("Lecture impossible", str(exc))
 
             timeline_panel.tick()
+            media_panel.tick()
             export_dialog.tick()
             dpg.render_dearpygui_frame()
 
