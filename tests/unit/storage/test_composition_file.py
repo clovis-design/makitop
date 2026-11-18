@@ -21,7 +21,7 @@ def test_composition_round_trip(video_file, image_file, tmp_path):
     path = tmp_path / "composition.makitop"
     save(project, path)
     assert load(path) == project
-    assert json.loads(path.read_text())["version"] == 4
+    assert json.loads(path.read_text())["version"] == 5
 
 
 def test_unknown_effect_is_reported_as_corrupt_project(image_file, tmp_path):

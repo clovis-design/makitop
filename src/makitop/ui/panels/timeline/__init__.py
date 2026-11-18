@@ -1,11 +1,13 @@
 """Panneau timeline : API publique conservée pour l'assemblage de la fenêtre."""
 
-from makitop.model.timeline import MediaClip
 from makitop.ui.panels.timeline.panel import (
     TAG,
     add_clip,
     bind_clip_moved,
     bind_delete,
+    bind_get_dragging_media,
+    bind_keyframes,
+    bind_media_drop,
     bind_seek,
     bind_select,
     bind_track_reordered,
@@ -23,7 +25,7 @@ from makitop.ui.panels.timeline.panel import (
 
 __all__ = [
     "TAG", "add_clip", "bind", "bind_clip_moved", "bind_delete", "bind_seek",
-    "clear", "create", "refresh", "set_playhead", "tick",
+    "clear", "create", "get_clip_ids", "refresh", "set_playhead", "tick",
 ]
 
 _editor = None
@@ -33,12 +35,33 @@ _last_project_id: int | None = None
 def bind(editor, on_error=None) -> None:
     global _editor
     _editor = editor
+    from makitop.ui.panels import media as media_panel
     bind_seek(editor.seek)
     bind_delete(lambda clip: _bridge_delete(editor, clip))
     bind_clip_moved(lambda clip: _bridge_drag(editor, clip))
     bind_track_reordered(lambda: _bridge_reorder(editor))
     bind_select(lambda clip: editor.select(clip.id))
     bind_zoom(editor.set_timeline_zoom)
+    bind_get_dragging_media(media_panel.get_dragging_media)
+    bind_media_drop(lambda media, start, row: _bridge_media_drop(editor, media, start, row))
+
+    def key_action(method, *args):
+        try:
+            getattr(editor, method)(*args)
+        except (ValueError, KeyError, StopIteration) as exc:
+            if on_error:
+                on_error(str(exc))
+            refresh()
+
+    def move_key(property, old_time, new_time):
+        fps = editor.project.timeline.fps
+        new_time = min(editor.selected.duration, round(new_time * fps) / fps)
+        key_action("move_keyframe", property, old_time, new_time)
+
+    bind_keyframes(
+        lambda *args: key_action("select_keyframe", *args), move_key,
+        lambda: key_action("remove_keyframe"),
+    )
 
 
 def refresh() -> None:
@@ -49,9 +72,8 @@ def refresh() -> None:
     is_new_project = project_id != _last_project_id
     clear()
     for clip in _editor.project.timeline.clips:
-        if isinstance(clip, MediaClip):
-            add_clip(clip)
-    set_selected(_editor.selected_id)
+        add_clip(clip)
+    set_selected(_editor.selected_id, _editor.selected_keyframe)
     if is_new_project:
         _last_project_id = project_id
         saved_zoom = _editor.project.view.timeline_zoom
@@ -72,6 +94,21 @@ def _bridge_delete(editor, clip) -> None:
 def _bridge_drag(editor, clip) -> None:
     """Le clip a déjà été modifié en place (timeline_start mis à jour)."""
     editor._edited()
+
+
+def _bridge_media_drop(editor, media, start: float, target_row: int) -> None:
+    """Crée un clip à la position de drop et insère la nouvelle piste à target_row."""
+    from makitop.ui.panels.timeline.panel import move_track_to
+    try:
+        editor.add_media(media, start)
+        # add_media → _edited() → refresh() → nouveau clip en _tracks[0]
+        # On le déplace à la ligne cible si ce n'est pas déjà la bonne
+        clamped = min(target_row, len(get_track_rows()) - 1)
+        if clamped > 0:
+            move_track_to(0, clamped)
+            _bridge_reorder(editor)
+    except ValueError:
+        pass
 
 
 def _bridge_reorder(editor) -> None:

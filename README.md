@@ -53,6 +53,39 @@ du décodage, du nombre de calques, du GPU et du taux de rafraîchissement de l'
 Une source à 30 fps reste à 30 images de mouvement différentes par seconde, même
 dans un montage à 120 fps : aucune interpolation artificielle n'est appliquée.
 
+## Animer avec des images clés
+
+Les propriétés **Position X, Position Y, Largeur, Hauteur et Volume** peuvent évoluer
+dans le temps, sur les vidéos comme sur les images fixes (volume pour les médias sonores).
+
+1. Sélectionner un clip et placer la tête de lecture au début de l'animation.
+2. Dans **Propriétés**, régler la valeur puis cliquer sur **+ clé** à côté du réglage.
+3. Avancer la tête de lecture et modifier cette propriété : une nouvelle image clé
+   est créée automatiquement dès que la propriété possède déjà une animation.
+   Le déplacement/redimensionnement à la souris suit la même règle.
+4. Lancer la lecture : les valeurs intermédiaires sont calculées automatiquement.
+
+Cocher **Images clés** dans la timeline pour déplier les cinq lignes sous la piste
+du clip sélectionné. Les clés sont des **losanges bleus**, et la clé sélectionnée
+est **jaune**. Cliquer sur un losange place la lecture à cet instant ; le glisser
+horizontalement déplace la clé, avec alignement sur la cadence du projet au relâchement.
+Le déplacement sur une clé existante de la même propriété est refusé.
+
+Dans les propriétés, **Précédente / Suivante** permettent de naviguer entre les clés.
+Le temps de la clé sélectionnée est aussi modifiable numériquement. Son interpolation
+vers la clé suivante se règle sur **Linéaire**, **Douce** (départ/arrivée progressifs)
+ou **Constante** (changement instantané à la clé suivante).
+Utiliser **Supprimer cette clé**, le bouton de la timeline ou **- clé** à l'instant
+concerné pour la supprimer.
+
+Les temps sont relatifs au début du clip : déplacer le clip déplace toute son animation.
+Les valeurs avant la première clé et après la dernière sont maintenues. Raccourcir
+un clip conserve ses clés hors durée pour pouvoir le rallonger ensuite.
+**Réinitialiser taille / recadrage** efface aussi l'animation de position et de taille,
+en conservant celle du volume. L'animation est enregistrée dans le projet et appliquée
+à l'identique par les moteurs du lecteur et de l'export ; le volume est interpolé
+échantillon par échantillon.
+
 ## Exporter en MP4
 
 Dans l'éditeur, choisir **Fichier → Exporter...**, régler la qualité, puis choisir
