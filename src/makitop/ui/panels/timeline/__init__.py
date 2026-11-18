@@ -60,7 +60,6 @@ def bind(editor, on_error=None) -> None:
 
     bind_keyframes(
         lambda *args: key_action("select_keyframe", *args), move_key,
-        lambda: key_action("remove_keyframe"),
     )
 
 

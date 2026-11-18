@@ -51,8 +51,12 @@ def find_action(
     return None
 
 
-def install(actions: dict[str, Callable[[], None]]) -> None:
+def install(
+    actions: dict[str, Callable[[], None]], blocked: Callable[[], bool] | None = None,
+) -> None:
     def on_key(sender, key: int) -> None:
+        if blocked is not None and blocked():
+            return
         action = find_action(key, _ctrl_down(), _shift_down(), actions)
         if action is not None:
             action()

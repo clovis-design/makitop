@@ -34,17 +34,30 @@ def editor(tmp_path, monkeypatch):
 def test_properties_create_animate_and_select_keyframes(editor, image_file):
     editor, errors = editor
     editor.add_media(probe(image_file))
+    assert not dpg.get_item_configuration("keyframe_row_volume")["show"]
     dpg.get_item_callback("keyframe_add_x")(None, None, "x")
     editor.seek(2)
-    dpg.get_item_callback("clip_x")(None, 50, "x")
+    dpg.get_item_callback("keyframe_add_x")(None, None, "x")
+    assert dpg.get_value("keyframe_value") == 0
+    dpg.get_item_callback("keyframe_value")(None, 50)
     assert [(k.time, k.value) for k in editor.selected.keyframes] == [(0, 0), (2, 0.5)]
     assert editor.selected.transform_at(1).x == 0.25
-    assert dpg.get_item_label("keyframe_add_x") == "- clé"
+    assert not dpg.does_item_exist("clip_x")
+    assert not dpg.does_item_exist("clip_volume_kf")
+    assert dpg.get_item_label("keyframe_add_x") == "◆"
+    assert dpg.get_value("keyframe_hint_x") == "Retirer une clé « Position X » à 2.000 s"
+    assert dpg.does_item_exist(f"key_badge_{editor.selected_id}")
+    assert not dpg.does_item_exist("timeline_delete_keyframe")
     assert len(list(panel._key_positions())) == 2
     assert editor.selected.id in timeline.get_clip_ids()  # images fixes aussi
     editor.seek(1)
     properties.tick(1)
-    assert dpg.get_value("clip_x") == 25
+    assert dpg.get_value("keyframe_value") == 50
+    # L'édition cible la clé sélectionnée, pas l'instant actuel (1 s).
+    dpg.get_item_callback("keyframe_value")(None, 60)
+    assert [(k.time, k.value) for k in editor.selected.keyframes] == [(0, 0), (2, 0.6)]
+    assert dpg.get_value("keyframe_value") == 60
+    dpg.get_item_callback("keyframe_value")(None, 50)
     editor.adjacent_keyframe(1)
     assert editor.selected_keyframe == ("x", 2)
     dpg.get_item_callback("keyframe_interpolation")(None, "Douce")
@@ -81,10 +94,88 @@ def test_timeline_drag_delete_collision_and_toggle(editor, image_file, monkeypat
     with pytest.raises(ValueError, match="déjà"):
         editor.move_keyframe("x", 3, 0)
     assert len(editor.selected.keyframes) == 2
-    dpg.get_item_callback("timeline_delete_keyframe")()
+    assert dpg.get_item_label("keyframe_add_x") == "◆"
+    dpg.get_item_callback("keyframe_add_x")(None, None, "x")
     assert len(editor.selected.keyframes) == 1
+    assert dpg.get_item_label("keyframe_add_x") == "◇"
     panel._toggle_keyframes(None, False)
     assert list(panel._key_positions()) == []
+    assert not errors
+
+
+def test_video_with_audio_shows_volume_and_transform_controls(editor, video_file):
+    editor, errors = editor
+    editor.add_media(probe(video_file))
+    assert dpg.get_item_configuration("keyframe_row_volume")["show"]
+    assert dpg.get_item_configuration("keyframe_row_x")["show"]
+    dpg.get_item_callback("keyframe_add_volume")(None, None, "volume")
+    assert dpg.get_value("keyframe_value") == 100
+    dpg.get_item_callback("keyframe_value")(None, 25)
+    assert editor.selected.keyframes[0].value == 0.25
+    assert editor.selected.keyframes[0].property == "volume"
+    assert not errors
+
+
+def test_selected_keyframe_value_rejects_invalid_values(editor, image_file):
+    editor, errors = editor
+    editor.add_media(probe(image_file))
+    dpg.get_item_callback("keyframe_add_width")(None, None, "width")
+    initial_value = editor.selected.keyframes[0].value
+    dpg.get_item_callback("keyframe_value")(None, 0)
+    assert editor.selected.keyframes[0].value == initial_value
+    assert dpg.get_value("keyframe_value") == initial_value * 100
+    assert errors
+
+
+def test_zoom_keyframes_from_inspector_and_zoom_control(editor, image_file):
+    editor, errors = editor
+    editor.add_media(probe(image_file))
+    dpg.get_item_callback("keyframe_add_zoom")(None, None, "zoom")
+    editor.seek(2)
+    dpg.get_item_callback("keyframe_add_zoom")(None, None, "zoom")
+    dpg.get_item_callback("keyframe_value")(None, 200)
+    assert editor.selected.transform_at(1).width == pytest.approx(1.5)
+    assert dpg.get_value("clip_zoom") == pytest.approx(200)
+    assert len(list(panel._key_positions())) == 2
+
+    editor.seek(1)
+    dpg.get_item_callback("clip_zoom")(None, 75)
+    assert editor.selected_keyframe == ("zoom", 1)
+    assert [(k.property, k.time, k.value) for k in editor.selected.keyframes] == [
+        ("zoom", 0, 1), ("zoom", 1, 0.75), ("zoom", 2, 2),
+    ]
+    assert editor.selected.transform_at(1).width == pytest.approx(0.75)
+    assert editor.selected.transform_at(1).x == pytest.approx(0.125)
+    editor.reset_transform()
+    assert not editor.selected.keyframes
+    assert not errors
+
+
+def test_keyframe_and_effect_badges_on_each_clip(editor, image_file):
+    editor, errors = editor
+    media = probe(image_file)
+    editor.add_media(media)
+    first_id = editor.selected_id
+    editor.toggle_keyframe("x")
+    editor.add_media(media, start=10)
+    second_id = editor.selected_id
+    editor.toggle_keyframe("y")
+    editor.update_clip(second_id, track=next(
+        clip.track for clip in editor.project.timeline.clips if clip.id == first_id))
+    assert len(panel.get_track_rows()) == 1
+    assert dpg.does_item_exist(f"key_badge_{first_id}")
+    assert dpg.does_item_exist(f"key_badge_{second_id}")
+
+    # Le badge reste visible quand les lignes d'animation sont repliées.
+    panel._toggle_keyframes(None, False)
+    assert dpg.does_item_exist(f"key_badge_{first_id}")
+    assert dpg.does_item_exist(f"key_badge_{second_id}")
+
+    from makitop.model.effects import Effect
+    editor.update_clip(first_id, effects=(Effect("brightness", 0.3),))
+    assert dpg.does_item_exist(f"fx_badge_{first_id}")
+    assert dpg.does_item_exist(f"key_badge_{first_id}")
+    assert not dpg.does_item_exist(f"fx_badge_{second_id}")
     assert not errors
 
 

@@ -20,7 +20,7 @@ def test_interpolation_and_boundaries(mode, expected):
 
 @pytest.mark.parametrize("args", [
     ("other", 0, 1), ("x", -1, 1), ("x", float("nan"), 1),
-    ("width", 0, 0), ("volume", 0, 3), ("x", 0, float("inf")),
+    ("width", 0, 0), ("zoom", 0, 0), ("volume", 0, 3), ("x", 0, float("inf")),
     ("x", 0, 1, "invalid"),
 ])
 def test_invalid_keyframe_rejected(args):
@@ -47,3 +47,14 @@ def test_move_and_trim_clip_preserve_local_animation(image_file):
     assert shortened.transform_at(0.5).x == 0.125
     with pytest.raises(ValueError, match="dupliquées"):
         replace(clip, keyframes=(Keyframe("x", 0, 0), Keyframe("x", 0, 1)))
+
+
+def test_zoom_keyframes_preserve_center_and_proportions(image_file):
+    clip = ImageClip(0, probe(image_file), 4, keyframes=(
+        Keyframe("zoom", 0, 1), Keyframe("zoom", 4, 2),
+    ))
+    middle = clip.transform_at(2)
+    assert middle.width == pytest.approx(1.5)
+    assert middle.height == pytest.approx(1.5)
+    assert (middle.x, middle.y) == pytest.approx((-0.25, -0.25))
+    assert clip.transform_at(4).width == 2

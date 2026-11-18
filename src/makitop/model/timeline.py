@@ -7,9 +7,9 @@ import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, replace
 
-from makitop.model.composition import Transform
+from makitop.model.composition import Transform, with_zoom
 from makitop.model.effects import Effect
-from makitop.model.keyframes import Keyframe, value_at
+from makitop.model.keyframes import Keyframe, curve, value_at
 from makitop.model.media import Media
 
 
@@ -60,10 +60,16 @@ class BaseClip(ABC):
     def transform_at(self, local_time):
         if not self.keyframes:
             return self.transform
-        return replace(self.transform, **{
+        transform = replace(self.transform, **{
             name: value_at(self.keyframes, name, local_time, getattr(self.transform, name))
             for name in ("x", "y", "width", "height")
         })
+        if curve(self.keyframes, "zoom"):
+            # Le zoom conserve les proportions et le centre, après les autres animations.
+            transform = with_zoom(transform, value_at(
+                self.keyframes, "zoom", local_time, self.transform.width,
+            ))
+        return transform
 
     def volume_at(self, local_time):
         return value_at(self.keyframes, "volume", local_time, self.volume)

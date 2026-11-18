@@ -46,6 +46,13 @@ def test_export_image_format(tmp_path, image_file, canvas_format, size):
         assert pixel[0] > 240 and np.max(pixel[1:]) < 10
 
 
+def test_export_fluide_resolution(tmp_path, image_file):
+    project = Project(timeline=Timeline(fps=10, clips=[ImageClip(0, probe(image_file), 0.1)]))
+    path = export_mp4(project, tmp_path / "fluide.mp4", settings=ExportSettings(height=360))
+    with av.open(str(path)) as container:
+        assert (container.streams.video[0].width, container.streams.video[0].height) == (640, 360)
+
+
 def test_cancel_preserves_destination(tmp_path, image_file):
     project = Project(timeline=Timeline(clips=[ImageClip(0, probe(image_file), 0.2)]))
     path = tmp_path / "existing.mp4"
