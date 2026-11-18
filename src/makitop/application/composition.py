@@ -52,8 +52,9 @@ class CompositionEditor:
             raise ValueError("Choisissez une vidéo lisible ou une image.")
         return MediaClip(start, media, 0, media.duration, track=track)
 
-    def add_media(self, media):
-        start = 0 if self.source_mode else self.playback.current_time()
+    def add_media(self, media, start=None):
+        if start is None:
+            start = 0 if self.source_mode else self.playback.current_time()
         track = max((c.track for c in self.project.timeline.clips), default=-1) + 1
         clip = self._new_clip(media, start, track)
         self.project.timeline.add_clip(clip)

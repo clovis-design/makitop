@@ -20,6 +20,7 @@ _SCROLL_TAG = "timeline_scroll"
 _DRAWLIST_TAG = "timeline_drawlist"
 _HANDLER_TAG = "timeline_resize_handler"
 _STATIC_LAYER = "timeline_static_layer"
+_GHOST_LAYER = "timeline_ghost_layer"
 _PLAYHEAD_LAYER = "timeline_playhead_layer"
 _CURSOR_LAYER = "timeline_cursor_layer"
 
@@ -60,13 +61,16 @@ _on_zoom = None            # Callable[[int], None]        — nouveau zoom en px
 _dragging: bool = False
 _drag_clip: MediaClip | None = None
 _drag_offset_px: float = 0.0
+_drag_source_row: int | None = None
 _selected_clip: MediaClip | None = None
 _pending_fit_zoom: bool = False
+_get_dragging_media = None   # Callable[[], Media | None]
+_on_media_drop = None        # Callable[[Media, float], None]
 
 
 def create() -> None:
     global _zoom_idx, _px_per_sec, _tracks, _playhead_sec
-    global _dragging, _drag_clip, _drag_offset_px, _selected_clip
+    global _dragging, _drag_clip, _drag_offset_px, _drag_source_row, _selected_clip
     global _on_delete, _on_clip_moved, _on_track_reordered, _on_select, _on_zoom, _pending_fit_zoom
     _zoom_idx = _DEFAULT_ZOOM_IDX
     _px_per_sec = _ZOOM_LEVELS[_DEFAULT_ZOOM_IDX]
@@ -75,6 +79,7 @@ def create() -> None:
     _dragging = False
     _drag_clip = None
     _drag_offset_px = 0.0
+    _drag_source_row = None
     _selected_clip = None
     _on_delete = None
     _on_clip_moved = None
@@ -119,6 +124,7 @@ def create() -> None:
                     height=_content_height(),
                 )
                 dpg.add_draw_layer(tag=_STATIC_LAYER, parent=_DRAWLIST_TAG)
+                dpg.add_draw_layer(tag=_GHOST_LAYER, parent=_DRAWLIST_TAG)
                 dpg.add_draw_layer(tag=_PLAYHEAD_LAYER, parent=_DRAWLIST_TAG)
                 dpg.add_draw_layer(tag=_CURSOR_LAYER, parent=_DRAWLIST_TAG)
 
@@ -217,6 +223,16 @@ def bind_zoom(fn) -> None:
     _on_zoom = fn
 
 
+def bind_get_dragging_media(fn) -> None:
+    global _get_dragging_media
+    _get_dragging_media = fn
+
+
+def bind_media_drop(fn) -> None:
+    global _on_media_drop
+    _on_media_drop = fn
+
+
 def set_zoom(pixels_per_second: int) -> None:
     """Applique un zoom enregistré (niveau le plus proche), sans notifier l'éditeur."""
     global _zoom_idx, _px_per_sec
@@ -240,9 +256,19 @@ def set_playhead(seconds: float) -> None:
 # ── Tick (appelé chaque frame) ────────────────────────────────────────────────
 
 def tick() -> None:
-    global _dragging, _drag_clip, _drag_offset_px, _selected_clip
+    global _dragging, _drag_clip, _drag_offset_px, _drag_source_row, _selected_clip
     if _pending_fit_zoom:
         _apply_fit_zoom()
+    if dpg.does_item_exist(_GHOST_LAYER):
+        dpg.delete_item(_GHOST_LAYER, children_only=True)
+
+    # Étendre le drawlist pendant un drag externe pour autoriser le drop en bas
+    ext_active = _get_dragging_media is not None and _get_dragging_media() is not None
+    if dpg.does_item_exist(_DRAWLIST_TAG):
+        target_h = _content_height() + (_TRACK_H if ext_active else 0)
+        if dpg.get_item_rect_size(_DRAWLIST_TAG)[1] != target_h:
+            dpg.configure_item(_DRAWLIST_TAG, height=target_h)
+
     btn_down = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
     if not dpg.does_item_exist(_DRAWLIST_TAG) or not dpg.does_item_exist(_CURSOR_LAYER):
         return
@@ -253,19 +279,23 @@ def tick() -> None:
     # Relâchement du bouton
     if not btn_down:
         if _drag_clip is not None:
-            rearranged = False
-            for row_idx, row in enumerate(_tracks):
-                if _drag_clip in row:
-                    row.sort(key=lambda c: c.timeline_start)
-                    if _has_overlap(_drag_clip, row):
-                        row.remove(_drag_clip)
-                        if row:
-                            _tracks.insert(row_idx, [_drag_clip])  # nouvelle piste au-dessus
-                        else:
-                            _tracks[row_idx] = [_drag_clip]  # remplace piste vide
-                        rearranged = True
-                    break
-            if rearranged:
+            dest_row_idx = next((i for i, row in enumerate(_tracks) if _drag_clip in row), None)
+            reorder_needed = dest_row_idx != _drag_source_row
+            # Si la row de destination a plusieurs clips, un merge a eu lieu (les indices
+            # ont pu se décaler après un pop() pendant le drag) → forcer le reorder
+            if not reorder_needed and dest_row_idx is not None and len(_tracks[dest_row_idx]) > 1:
+                reorder_needed = True
+            if dest_row_idx is not None:
+                row = _tracks[dest_row_idx]
+                row.sort(key=lambda c: c.timeline_start)
+                if _has_overlap(_drag_clip, row):
+                    row.remove(_drag_clip)
+                    if row:
+                        _tracks.insert(dest_row_idx, [_drag_clip])
+                    else:
+                        _tracks[dest_row_idx] = [_drag_clip]
+                    reorder_needed = True
+            if reorder_needed:
                 if _on_track_reordered is not None:
                     _on_track_reordered()
                 _redraw()
@@ -273,6 +303,7 @@ def tick() -> None:
                 if _on_clip_moved is not None:
                     _on_clip_moved(_drag_clip)
             _drag_clip = None
+            _drag_source_row = None
         _dragging = False
 
     if hovered or active:
@@ -284,12 +315,16 @@ def tick() -> None:
         local_x = mx - dl_min[0]
         local_y = my - dl_min[1]
 
-        # Début d'un drag
-        if hovered and btn_down and not active:
+        # Début d'un drag — bloqué si un média externe est en cours de drop
+        _external_drag = _get_dragging_media is not None and _get_dragging_media() is not None
+        if hovered and btn_down and not active and not _external_drag:
             clip = _clip_at(local_x, local_y)
             if clip is not None:
                 _drag_clip = clip
                 _drag_offset_px = local_x - clip.timeline_start * _px_per_sec
+                _drag_source_row = next(
+                    (i for i, row in enumerate(_tracks) if clip in row), None
+                )
                 if _selected_clip is not clip:
                     _selected_clip = clip
                     _redraw_static_only()
@@ -301,16 +336,46 @@ def tick() -> None:
 
         # Drag d'un clip
         if _drag_clip is not None and btn_down:
-            _drag_clip.timeline_start = max(0.0, (local_x - _drag_offset_px) / _px_per_sec)
-            _redraw_static_only()
+            new_start = max(0.0, (local_x - _drag_offset_px) / _px_per_sec)
+
+            # Déplacement vertical entre pistes
+            target_row = max(0, min(len(_tracks) - 1, int((local_y - _RULER_H) / _TRACK_H)))
+            current_row = next((i for i, row in enumerate(_tracks) if _drag_clip in row), None)
+            if current_row is not None and target_row != current_row:
+                _tracks[current_row].remove(_drag_clip)
+                if not _tracks[current_row]:
+                    _tracks.pop(current_row)
+                    if target_row > current_row:
+                        target_row -= 1
+                target_row = max(0, min(len(_tracks) - 1, target_row))
+                _drag_clip.timeline_start = new_start
+                _tracks[target_row].append(_drag_clip)
+                _tracks[target_row].sort(key=lambda c: c.timeline_start)
+                _redraw()
+            else:
+                _drag_clip.timeline_start = new_start
+                _redraw_static_only()
+
+            # Ghost : surbrillance de la piste cible + indicateur si overlap
+            _draw_drag_ghost(target_row, new_start)
 
         # Seek drag
-        elif _dragging and btn_down and _on_seek is not None:
+        elif _dragging and btn_down and _on_seek is not None and not _external_drag:
             _on_seek(max(0.0, local_x / _px_per_sec))
+
+        # Drop d'un média externe dans la timeline
+        if _external_drag and hovered:
+            ext_media = _get_dragging_media()
+            if ext_media is not None:
+                ext_start = max(0.0, local_x / _px_per_sec)
+                ext_row = max(0, min(len(_tracks), int((local_y - _RULER_H) / _TRACK_H)))
+                _draw_external_media_ghost(ext_media, ext_start, ext_row)
+                if not btn_down and _on_media_drop is not None:
+                    _on_media_drop(ext_media, ext_start, ext_row)
 
         # Curseur hover
         dpg.delete_item(_CURSOR_LAYER, children_only=True)
-        if hovered and _drag_clip is None and local_x >= 0:
+        if hovered and _drag_clip is None and not _external_drag and local_x >= 0:
             dpg.draw_line(
                 (local_x, 0), (local_x, _content_height()),
                 color=_COLOR_CURSOR,
@@ -329,6 +394,16 @@ def _move_track(row: int, direction: int) -> None:
     if _on_track_reordered is not None:
         _on_track_reordered()
     _redraw()
+
+
+def move_track_to(from_row: int, to_row: int) -> None:
+    """Déplace une piste de from_row vers to_row (sans déclencher les callbacks)."""
+    if from_row == to_row:
+        return
+    if not (0 <= from_row < len(_tracks)) or not (0 <= to_row < len(_tracks)):
+        return
+    row = _tracks.pop(from_row)
+    _tracks.insert(to_row, row)
 
 
 def _clip_at(local_x: float, local_y: float) -> "MediaClip | None":
@@ -536,6 +611,77 @@ def _do_delete_track(track_idx: int, dialog_tag: str) -> None:
         for clip in clips_to_delete:
             _on_delete(clip)
     _redraw()
+
+
+def _draw_drag_ghost(target_row: int, new_start: float) -> None:
+    if not dpg.does_item_exist(_GHOST_LAYER) or _drag_clip is None:
+        return
+    total_w = _content_width()
+    row_y = _RULER_H + target_row * _TRACK_H
+
+    # Surbrillance de la piste cible
+    dpg.draw_rectangle(
+        (0, row_y), (total_w, row_y + _TRACK_H),
+        fill=(255, 255, 255, 12),
+        color=(160, 190, 255, 60),
+        thickness=1,
+        parent=_GHOST_LAYER,
+    )
+
+    # Si la position actuelle provoquerait un overlap → ligne jaune = future nouvelle piste
+    dest_row_clips = _tracks[target_row] if 0 <= target_row < len(_tracks) else []
+    if _has_overlap(_drag_clip, dest_row_clips):
+        dpg.draw_line(
+            (0, row_y), (total_w, row_y),
+            color=(255, 210, 50, 220),
+            thickness=2,
+            parent=_GHOST_LAYER,
+        )
+        dpg.draw_text(
+            (4, row_y + 2),
+            "Nouvelle piste",
+            color=(255, 210, 50, 200),
+            size=11,
+            parent=_GHOST_LAYER,
+        )
+
+
+
+def _draw_external_media_ghost(media, start: float, target_row: int) -> None:
+    """Ghost vert à la position d'insertion calculée depuis la souris."""
+    if not dpg.does_item_exist(_GHOST_LAYER):
+        return
+    total_w = _content_width()
+    insert_y = _RULER_H + target_row * _TRACK_H
+
+    # Ligne d'insertion horizontale
+    dpg.draw_line(
+        (0, insert_y), (total_w, insert_y),
+        color=(80, 220, 120, 220),
+        thickness=2,
+        parent=_GHOST_LAYER,
+    )
+    # Ghost clip à la position d'insertion
+    gx = int(start * _px_per_sec)
+    duration = getattr(media, "duration", None) or 10.0
+    gw = max(10, int(duration * _px_per_sec))
+    clip_h = _TRACK_H - 8
+    gy = insert_y + 4
+    dpg.draw_rectangle(
+        (gx, gy), (gx + gw, gy + clip_h),
+        fill=(80, 200, 100, 55),
+        color=(80, 220, 120, 200),
+        thickness=2,
+        parent=_GHOST_LAYER,
+    )
+    if gw >= 40:
+        dpg.draw_text(
+            (gx + 5, gy + clip_h // 2 - 6),
+            media.path.stem,
+            color=(200, 255, 210, 220),
+            size=12,
+            parent=_GHOST_LAYER,
+        )
 
 
 def _draw_ruler(total_w: int) -> None:
