@@ -144,13 +144,12 @@ def _go_end():
 def _transport_theme():
     if dpg.does_alias_exist(TRANSPORT_THEME):
         return
-    with dpg.theme(tag=TRANSPORT_THEME):
-        with dpg.theme_component(dpg.mvImageButton):
-            dpg.add_theme_color(dpg.mvThemeCol_Button, (0, 0, 0, 0))
-            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (60, 66, 95))
-            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (41, 74, 122))
-            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 4)
-            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 6, 4)
+    with dpg.theme(tag=TRANSPORT_THEME), dpg.theme_component(dpg.mvImageButton):
+        dpg.add_theme_color(dpg.mvThemeCol_Button, (0, 0, 0, 0))
+        dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (60, 66, 95))
+        dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (41, 74, 122))
+        dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 4)
+        dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 6, 4)
 
 
 def _transport_button(name, tag, tooltip, callback):
@@ -233,7 +232,8 @@ def refresh():
 
 
 def _bounds(clip):
-    return fitted_bounds(clip.transform, clip.media.width, clip.media.height,
+    return fitted_bounds(clip.transform_at(_time - clip.timeline_start),
+                         clip.media.width, clip.media.height,
                          _editor.project.canvas_ratio)
 
 
@@ -300,7 +300,8 @@ def _click():
     _editor.select(selected.id if selected else None)
     if selected:
         _editor.playback.pause()
-        _gesture = (selected.id, selected.transform, _bounds(selected), point,
+        _gesture = (selected.id, selected.transform_at(_time - selected.timeline_start),
+                    _bounds(selected), point,
                     "crop" if dpg.get_value("composition_crop") else "resize", handle)
 
 
@@ -313,7 +314,9 @@ def _drag():
         transform = drag_transform(original, bounds, mode, handle,
                                    point[0] - origin[0], point[1] - origin[1],
                                    _editor.project.canvas_ratio)
-        if _editor.selected is not None and transform != _editor.selected.transform:
+        if _editor.selected is not None and transform != _editor.selected.transform_at(
+            _time - _editor.selected.timeline_start,
+        ):
             _editor.update_clip(clip_id, transform=transform)
     _call(apply)
 

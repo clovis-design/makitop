@@ -170,6 +170,7 @@ def main() -> None:
             current_time = playback_controller.current_time()
             editor.sync_playhead()
             preview.update_time(current_time)
+            properties.tick(current_time)
             timeline_panel.set_playhead(0 if editor.source_mode else current_time)
 
             try:

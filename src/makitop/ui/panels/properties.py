@@ -16,6 +16,7 @@ from makitop.model.composition import (
     with_crop,
     with_zoom,
 )
+from makitop.model.keyframes import INTERPOLATIONS, PROPERTIES
 from makitop.model.media import MediaKind
 from makitop.model.timeline import ImageClip
 from makitop.ui.assets.style import COLORS
@@ -77,6 +78,8 @@ def create() -> None:
                     _audio_tab()
                 with dpg.tab(label="Effets", tag=TAB_EFFECTS):
                     _effects_tab()
+                with dpg.tab(label="Images clés", tag="clip_tab_keyframes"):
+                    _keyframes_tab()
             dpg.add_spacer(height=4)
             dpg.add_button(label="Supprimer le calque", tag="clip_remove", width=-1, height=26,
                            callback=lambda: _action("remove_selected"))
@@ -144,6 +147,48 @@ def _effects_tab() -> None:
     with dpg.group(tag="clip_effects"):
         dpg.add_text(_NO_EFFECT, tag="clip_effects_empty", wrap=0, color=COLORS["label_muted"])
         dpg.add_group(tag="clip_effects_list")
+
+
+def _keyframes_tab() -> None:
+    dpg.add_text("", tag="keyframe_cursor", wrap=0, color=COLORS["label_muted"])
+    dpg.add_spacer(height=4)
+    with _section("kf_props", "Propriétés animées"):
+        with _rows():
+            for name in ("x", "y", "width", "height"):
+                with _row(PROPERTIES[name][0]):
+                    with dpg.group(horizontal=True):
+                        dpg.add_input_float(tag=f"clip_{name}", width=-40, step=0,
+                                            format="%.1f %%", on_enter=True, user_data=name,
+                                            callback=lambda s, v, p: _action(
+                                                "set_animated_value", p, v / 100))
+                        dpg.add_button(label="+", tag=f"keyframe_add_{name}", width=-1,
+                                       user_data=name,
+                                       callback=lambda s, v, p: _action("toggle_keyframe", p))
+            with _row(PROPERTIES["volume"][0]):
+                with dpg.group(horizontal=True):
+                    dpg.add_input_float(tag="clip_volume_kf", width=-40, step=0,
+                                        format="%.1f %%", on_enter=True, user_data="volume",
+                                        callback=lambda s, v, p: _action(
+                                            "set_animated_value", p, v / 100))
+                    dpg.add_button(label="+", tag="keyframe_add_volume", width=-1,
+                                   user_data="volume",
+                                   callback=lambda s, v, p: _action("toggle_keyframe", p))
+    with _section("kf_edit", "Clé sélectionnée"):
+        with dpg.group(horizontal=True):
+            dpg.add_button(label="◀ Préc.", callback=lambda: _action("adjacent_keyframe", -1))
+            dpg.add_button(label="Suiv. ▶", callback=lambda: _action("adjacent_keyframe", 1))
+        dpg.add_spacer(height=4)
+        dpg.add_text("Aucune clé sélectionnée", tag="keyframe_selected",
+                     wrap=0, color=COLORS["label_muted"])
+        with dpg.group(tag="keyframe_edit", show=False):
+            with _rows():
+                with _row("Temps (s)"):
+                    dpg.add_input_float(tag="keyframe_time", width=-1, step=0, format="%.4f",
+                                        on_enter=True, callback=_key_time_changed)
+                with _row("Interpolation"):
+                    dpg.add_combo(list(INTERPOLATIONS), tag="keyframe_interpolation", width=-1,
+                                  callback=lambda s, v: _action(
+                                      "set_keyframe_interpolation", INTERPOLATIONS[v]))
 
 
 @contextmanager
@@ -278,6 +323,56 @@ def refresh():
     dpg.set_value("clip_volume", clip.volume * 100)
     dpg.set_value("clip_muted", clip.muted)
     _refresh_effects(clip)
+    tick(_editor.playback.current_time())
+    if dpg.does_alias_exist("keyframe_edit"):
+        selected = next((k for k in clip.keyframes
+                         if (k.property, k.time) == _editor.selected_keyframe), None)
+        dpg.configure_item("keyframe_edit", show=selected is not None)
+        if dpg.does_alias_exist("keyframe_selected"):
+            dpg.set_value("keyframe_selected", (
+                f"{PROPERTIES[selected.property][0]} à {selected.time:.4f} s"
+                if selected else "Aucune clé sélectionnée"
+            ))
+        if selected:
+            if dpg.does_alias_exist("keyframe_time"):
+                dpg.set_value("keyframe_time", selected.time)
+            if dpg.does_alias_exist("keyframe_interpolation"):
+                label = next(k for k, v in INTERPOLATIONS.items() if v == selected.interpolation)
+                dpg.set_value("keyframe_interpolation", label)
+
+
+def _key_button(name):
+    dpg.add_button(label="+ clé", tag=f"keyframe_add_{name}", user_data=name,
+                   callback=lambda s, v, p: _action("toggle_keyframe", p))
+
+
+def _key_time_changed(sender, value):
+    if _editor is not None and _editor.selected_keyframe is not None:
+        _action("move_keyframe", *_editor.selected_keyframe, value)
+
+
+def tick(position):
+    """Actualise les valeurs animées à la lecture/au seek, sans reconstruire les contrôles."""
+    clip = _editor.selected if _editor and not _editor.source_mode else None
+    if clip is None:
+        return
+    local_time = max(0, min(clip.duration, position - clip.timeline_start))
+    transform = clip.transform_at(local_time)
+    key_time = _editor.keyframe_time()
+    for name in PROPERTIES:
+        value = clip.volume_at(local_time) if name == "volume" else getattr(transform, name)
+        for tag in (f"clip_{name}", f"clip_{name}_kf"):
+            if dpg.does_alias_exist(tag):
+                if not dpg.is_item_active(tag) and dpg.get_value(tag) != value * 100:
+                    dpg.set_value(tag, value * 100)
+        key_tag = f"keyframe_add_{name}"
+        if dpg.does_alias_exist(key_tag):
+            exists = any(k.property == name and abs(k.time - key_time) < 1e-9 for k in clip.keyframes)
+            label = "- clé" if exists else "+ clé"
+            if dpg.get_item_label(key_tag) != label:
+                dpg.configure_item(key_tag, label=label)
+    if dpg.does_alias_exist("keyframe_cursor"):
+        dpg.set_value("keyframe_cursor", f"Temps dans le clip : {local_time:.3f} s")
 
 
 def _subtitle(clip) -> str:

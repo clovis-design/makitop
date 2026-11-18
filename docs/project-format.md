@@ -1,11 +1,11 @@
 # Format des projets `.makitop`
 
-Un projet est un document JSON UTF-8. La version actuelle est **3**.
+Un projet est un document JSON UTF-8. La version actuelle est **5**.
 
 ```json
 {
   "format": "makitop",
-  "version": 3,
+  "version": 5,
   "name": "Mon montage",
   "canvas_format": "16:9",
   "fps": 30,
@@ -28,7 +28,12 @@ Un projet est un document JSON UTF-8. La version actuelle est **3**.
         "crop_left": 0.0, "crop_top": 0.0, "crop_right": 0.0, "crop_bottom": 0.0
       },
       "volume": 0.8,
-      "muted": false
+      "muted": false,
+      "effects": [],
+      "keyframes": [
+        {"property": "x", "time": 0.0, "value": 0.0, "interpolation": "smooth"},
+        {"property": "x", "time": 3.0, "value": 0.5, "interpolation": "linear"}
+      ]
     }
   ],
   "view": {"playhead": 2.3, "timeline_zoom": 100}
@@ -38,7 +43,8 @@ Un projet est un document JSON UTF-8. La version actuelle est **3**.
 ## Règles
 
 - **Cadre** : `canvas_format` vaut `16:9`, `9:16` ou `1:1`. `fps` est une cadence
-  entière entre 1 et 120 images/s. Par défaut : 16:9 et 30 images/s.
+  entière entre 1 et 120 images/s. Nouveaux projets : 16:9 et 60 images/s.
+  Un ancien fichier sans cadence est interprété à 30 images/s.
 - **Médias** : ressources importées de type `video`, `audio` ou `image`.
   Les chemins situés dans le dossier du projet sont relatifs ; les autres sont
   absolus. Les identifiants sont stables entre deux sauvegardes.
@@ -55,6 +61,15 @@ Un projet est un document JSON UTF-8. La version actuelle est **3**.
   cadre. Les quatre marges `crop_*` sont des fractions des dimensions sources.
 - **Audio** : gain linéaire `volume` entre 0 et 2 ; `muted` coupe l'occurrence.
   Les transformations visuelles ne modifient pas l'audio.
+- **Images clés** : liste `keyframes`, vide par défaut. Chaque clé contient une
+  `property` parmi `x`, `y`, `width`, `height`, `volume`, un `time` fini positif ou nul
+  relatif au début du clip, une `value` dans les mêmes unités et limites que la
+  propriété constante, et une `interpolation` (`linear`, `smooth`, `constant`).
+  Cette interpolation décrit le segment vers la clé suivante de la même propriété.
+  Deux clés ne peuvent pas partager la même propriété et le même instant.
+  Les valeurs extrêmes sont maintenues hors des clés. Les temps ne changent pas
+  quand le clip est déplacé ou quand la cadence est modifiée. Les clés après une
+  nouvelle fin de clip sont conservées lors d'un raccourcissement.
 - **État d'affichage** : `view.playhead` est la position de lecture en secondes
   (timeline et preview), `view.timeline_zoom` le zoom de la timeline en pixels par
   seconde. Ils sont restaurés à l'ouverture ; les modifier marque le projet comme
@@ -72,8 +87,9 @@ Un projet est un document JSON UTF-8. La version actuelle est **3**.
 - Les anciens clips reçoivent par défaut la piste 0, une géométrie plein cadre
   avec conservation des proportions, le volume 1 et `muted: false`.
 - Un projet sans `view` s'ouvre avec la lecture à 0 et un zoom de 100 px/s.
+- Les projets v4 (effets) restent lisibles ; les clips sans `keyframes` restent constants.
 - Une version plus récente que celle comprise par l'application est refusée.
-  L'enregistrement d'un ancien projet produit le format v3.
+  L'enregistrement d'un ancien projet produit le format v5.
 
 ## Ressources externes
 

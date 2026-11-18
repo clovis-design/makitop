@@ -40,6 +40,7 @@ class TimelineRenderer:
         clips = [c for c in project.timeline.clips_at(time) if c.media.kind != MediaKind.AUDIO]
         sources = []
         local_times = [time - c.timeline_start for c in clips]
+        transforms = [c.transform_at(t) for c, t in zip(clips, local_times, strict=True)]
         for clip in clips:
             stat = clip.media.path.stat()
             identity = (str(clip.media.path.resolve()), stat.st_mtime_ns, stat.st_size)
@@ -49,16 +50,18 @@ class TimelineRenderer:
         # Une image fixe avec un effet animé change à chaque frame : le temps local
         # du clip fait alors partie de la clé.
         key = ("composition", width, height, tuple(
-            (s, c.transform, c.track, c.effects,
+            (s, transform, c.track, c.effects,
              round(t, 6) if any(e.kind in TIME_DEPENDENT for e in c.effects) else None)
-            for s, c, t in zip(sources, clips, local_times, strict=True)))
+            for s, c, t, transform in zip(sources, clips, local_times, transforms, strict=True)))
         cached = self.cache.get(key)
         if cached is not None:
             return cached
         result = np.zeros((height, width, 3), dtype=np.uint8)
-        for clip, (identity, source_time), local_t in zip(clips, sources, local_times, strict=True):
+        for clip, (identity, source_time), local_t, transform in zip(
+            clips, sources, local_times, transforms, strict=True,
+        ):
             image = self._source(clip, identity, source_time)
-            self._composite(result, image, clip.transform, clip.effects,
+            self._composite(result, image, transform, clip.effects,
                             local_t, clip.duration, frame_index)
         self.cache.put(key, result)
         return result
