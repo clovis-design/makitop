@@ -78,3 +78,35 @@ def drag_transform(original, bounds, mode, handle, dx, dy, canvas_ratio):
     new_w, new_h = width * scale, height * scale
     return replace(t, x=x + (width - new_w if sx < 0 else 0),
                    y=y + (height - new_h if sy < 0 else 0), width=new_w, height=new_h)
+
+
+def center_offset(t):
+    """Décalage du centre du calque par rapport au centre du cadre (0, 0 = centré)."""
+    return t.x + t.width / 2 - 0.5, t.y + t.height / 2 - 0.5
+
+
+def with_center_offset(t, cx, cy):
+    return replace(t, x=cx + 0.5 - t.width / 2, y=cy + 0.5 - t.height / 2)
+
+
+def with_zoom(t, zoom):
+    """Met le calque à l'échelle autour de son centre ; `zoom` = 1 remplit la largeur."""
+    if zoom <= 0:
+        raise ValueError("Taille de calque invalide.")
+    scale = zoom / t.width
+    width, height = t.width * scale, t.height * scale
+    cx, cy = center_offset(t)
+    return replace(t, x=cx + 0.5 - width / 2, y=cy + 0.5 - height / 2,
+                   width=width, height=height)
+
+
+def with_crop(t, bounds, side, value):
+    """Recadre un côté comme le ferait la poignée : seul ce bord de l'image bouge."""
+    x, y, width, height = bounds
+    change = value - getattr(t, f"crop_{side}")
+    sign = 1 if side in ("left", "top") else -1
+    if side in ("left", "right"):
+        full = width / (1 - t.crop_left - t.crop_right)
+        return drag_transform(t, bounds, "crop", side, sign * change * full, 0, 1)
+    full = height / (1 - t.crop_top - t.crop_bottom)
+    return drag_transform(t, bounds, "crop", side, 0, sign * change * full, 1)

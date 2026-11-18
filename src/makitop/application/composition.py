@@ -5,6 +5,7 @@ from math import ceil
 
 from makitop.model.composition import FORMATS, Transform
 from makitop.model.effects import CATALOG, Effect
+from makitop.model.keyframes import PROPERTIES, Keyframe, curve, upsert
 from makitop.model.media import MediaKind
 from makitop.model.project import Project
 from makitop.model.timeline import ImageClip, MediaClip, Timeline
@@ -16,6 +17,7 @@ class CompositionEditor:
         self.playback = playback
         self.on_refresh = on_refresh
         self.selected_id = None
+        self.selected_keyframe = None
         self.source_mode = False
 
     @property
@@ -63,6 +65,8 @@ class CompositionEditor:
         return clip
 
     def select(self, clip_id):
+        if clip_id != self.selected_id:
+            self.selected_keyframe = None
         self.selected_id = clip_id
         clip = self.selected
         if clip is not None and (self.source_mode or not (
@@ -75,8 +79,128 @@ class CompositionEditor:
     def update_clip(self, clip_id, *, position=None, **changes):
         clips = self.project.timeline.clips
         index = next(i for i, c in enumerate(clips) if c.id == clip_id)
+        clip = clips[index]
+        # Modifier une propriété déjà animée crée/met à jour la clé sous la tête
+        # de lecture ; les propriétés non animées restent des réglages constants.
+        keys = clip.keyframes
+        time = self.keyframe_time(clip)
+        if "volume" in changes and curve(keys, "volume"):
+            keys = self._value_key(keys, "volume", time, changes.pop("volume"))
+            self.selected_keyframe = ("volume", time)
+        if "transform" in changes:
+            transform = changes["transform"]
+            current = clip.transform_at(time)
+            base = {}
+            for name in ("x", "y", "width", "height"):
+                if curve(keys, name):
+                    if getattr(transform, name) != getattr(current, name):
+                        keys = self._value_key(keys, name, time, getattr(transform, name))
+                        self.selected_keyframe = (name, time)
+                    base[name] = getattr(clip.transform, name)
+            changes["transform"] = replace(transform, **base)
+        if keys != clip.keyframes:
+            changes["keyframes"] = keys
         clips[index] = replace(clips[index], **changes)
         self._edited(position)
+
+    def keyframe_time(self, clip=None):
+        clip = clip or self.selected
+        if clip is None:
+            raise ValueError("Sélectionnez un clip.")
+        time = self.playback.current_time() - clip.timeline_start
+        # Conserver les clés hors grille (projet dont la cadence a changé).
+        for key in clip.keyframes:
+            if abs(key.time - time) < 1e-8:
+                return key.time
+        fps = self.project.timeline.fps
+        return min(clip.duration, max(0, round(time * fps) / fps))
+
+    @staticmethod
+    def _value_key(keys, property, time, value):
+        existing = next((k for k in curve(keys, property) if abs(k.time - time) < 1e-9), None)
+        mode = existing.interpolation if existing else "linear"
+        return upsert(keys, Keyframe(property, time, value, mode))
+
+    def set_animated_value(self, property, value):
+        clip = self.selected
+        if clip is None:
+            return
+        if property == "volume":
+            self.update_clip(clip.id, volume=value)
+        else:
+            transform = replace(clip.transform_at(self.keyframe_time()), **{property: value})
+            self.update_clip(clip.id, transform=transform)
+
+    def toggle_keyframe(self, property):
+        clip = self.selected
+        if clip is None or property not in PROPERTIES:
+            raise ValueError("Sélectionnez un clip et une propriété animable.")
+        self.playback.pause()
+        time = self.keyframe_time()
+        if any(k.property == property and abs(k.time - time) < 1e-9 for k in clip.keyframes):
+            self.remove_keyframe(property, time)
+            return
+        value = (clip.volume_at(time) if property == "volume"
+                 else getattr(clip.transform_at(time), property))
+        self.selected_keyframe = (property, time)
+        self.update_clip(clip.id, keyframes=upsert(clip.keyframes, Keyframe(property, time, value)))
+
+    def select_keyframe(self, clip_id, property, time):
+        clip = next(c for c in self.project.timeline.clips if c.id == clip_id)
+        if not any(k.property == property and k.time == time for k in clip.keyframes):
+            raise ValueError("Image clé introuvable.")
+        self.playback.pause()
+        self.selected_id = clip_id
+        self.selected_keyframe = (property, time)
+        self.show_montage(clip.timeline_start + time)
+
+    def move_keyframe(self, property, time, new_time):
+        clip = self.selected
+        if clip is None:
+            return
+        if not 0 <= new_time <= clip.duration:
+            raise ValueError("L'image clé doit rester dans la durée du clip.")
+        old = next(k for k in clip.keyframes if k.property == property and k.time == time)
+        if any(k is not old and k.property == property and abs(k.time - new_time) < 1e-9
+               for k in clip.keyframes):
+            raise ValueError("Une image clé existe déjà à cet instant pour cette propriété.")
+        keys = tuple(k for k in clip.keyframes if k is not old)
+        keys = upsert(keys, replace(old, time=new_time))
+        self.selected_keyframe = (property, new_time)
+        self.update_clip(clip.id, keyframes=keys, position=clip.timeline_start + new_time)
+
+    def remove_keyframe(self, property=None, time=None):
+        clip = self.selected
+        if clip is None:
+            return
+        if property is None:
+            if self.selected_keyframe is None:
+                return
+            property, time = self.selected_keyframe
+        keys = tuple(k for k in clip.keyframes if not (k.property == property and k.time == time))
+        self.selected_keyframe = None
+        self.update_clip(clip.id, keyframes=keys)
+
+    def set_keyframe_interpolation(self, mode):
+        clip = self.selected
+        if clip is None or self.selected_keyframe is None:
+            return
+        property, time = self.selected_keyframe
+        keys = tuple(replace(k, interpolation=mode) if (k.property, k.time) == (property, time)
+                     else k for k in clip.keyframes)
+        self.update_clip(clip.id, keyframes=keys)
+
+    def adjacent_keyframe(self, direction):
+        clip = self.selected
+        if clip is None:
+            return
+        time = self.playback.current_time() - clip.timeline_start
+        keys = sorted((k for k in clip.keyframes if 0 <= k.time <= clip.duration
+                       and (k.time - time) * direction > 1e-8),
+                      key=lambda k: k.time, reverse=direction < 0)
+        if keys:
+            key = keys[0]
+            self.select_keyframe(clip.id, key.property, key.time)
 
     def set_format(self, value):
         if value not in FORMATS:
@@ -130,13 +254,22 @@ class CompositionEditor:
 
     def reset_transform(self):
         if self.selected is not None:
-            self.update_clip(self.selected_id, transform=Transform())
+            clip = self.selected
+            # Réinitialiser enlève aussi l'animation géométrique, en conservant le son.
+            self.selected_keyframe = None
+            clips = self.project.timeline.clips
+            index = next(i for i, c in enumerate(clips) if c.id == clip.id)
+            clips[index] = replace(clip, transform=Transform(), keyframes=tuple(
+                k for k in clip.keyframes if k.property == "volume"
+            ))
+            self._edited()
 
     def remove_selected(self):
         if self.selected is None:
             return
         self.project.timeline.remove_clip(self.selected_id)
         self.selected_id = None
+        self.selected_keyframe = None
         self._edited()
 
     def seek(self, position):
