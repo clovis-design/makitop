@@ -54,6 +54,19 @@ _filter_active_theme: int = 0
 _search_query: str = ""
 _sort_key: str = "import"
 
+# Drag & drop vers la timeline
+_hovered_media: Media | None = None
+_hover_set_this_tick: bool = False
+_drag_candidate: Media | None = None
+_drag_start_pos: tuple | None = None
+_dragging_media: Media | None = None
+_drag_active: bool = False
+_prev_btn_down: bool = False
+_ghost_drawn_for: "Media | None" = None
+
+_DRAG_GHOST_TAG = "media_drag_ghost_window"
+_DRAG_GHOST_DL = "media_drag_ghost_drawlist"
+
 _ADD_BUTTON_TAG = "media_add_button"
 _CTX_ADD_TO_TIMELINE_TAG = "media_ctx_add_to_timeline"
 _CTX_DELETE_TAG = "media_ctx_delete"
@@ -97,6 +110,8 @@ def create(
 ) -> None:
     global _medias, _current_cols, _current_row_tag, _item_count, _on_selected, _on_add_media
     global _active_filter, _filter_active_theme, _search_query, _sort_key, _on_add_to_timeline, _on_delete_media
+    global _hovered_media, _hover_set_this_tick, _drag_candidate, _drag_start_pos
+    global _dragging_media, _drag_active, _prev_btn_down
     _on_selected = on_selected
     _on_add_media = on_add_media
     _on_add_to_timeline = on_add_to_timeline
@@ -108,6 +123,14 @@ def create(
     _active_filter = None
     _search_query = ""
     _sort_key = "import"
+    _hovered_media = None
+    _hover_set_this_tick = False
+    _drag_candidate = None
+    _drag_start_pos = None
+    _dragging_media = None
+    _drag_active = False
+    _prev_btn_down = False
+    _ghost_drawn_for = None
 
     # 1. THÈME DU PANNEAU
     with dpg.theme(tag="media_panel_theme"):
@@ -124,6 +147,27 @@ def create(
             dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (40, 100, 155, 255))
             dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 8)
 
+    # Fenêtre flottante ghost pour drag & drop (créée au niveau viewport)
+    with dpg.window(
+        tag=_DRAG_GHOST_TAG,
+        no_title_bar=True,
+        no_resize=True,
+        no_move=True,
+        no_scrollbar=True,
+        no_collapse=True,
+        no_saved_settings=True,
+        no_focus_on_appearing=True,
+        no_background=True,
+        autosize=True,
+        show=False,
+        min_size=[1, 1],
+    ):
+        dpg.add_drawlist(
+            tag=_DRAG_GHOST_DL,
+            width=thumbnails.THUMB_W,
+            height=thumbnails.THUMB_H + 18,
+        )
+
     dpg.add_texture_registry(tag=_TEXTURE_REGISTRY)
     
     with dpg.item_handler_registry(tag=_PANEL_HANDLER):
@@ -132,6 +176,8 @@ def create(
     with dpg.item_handler_registry(tag=_CLICK_HANDLER):
         dpg.add_item_clicked_handler(button=dpg.mvMouseButton_Left, callback=_on_media_clicked)
         dpg.add_item_clicked_handler(button=dpg.mvMouseButton_Right, callback=_on_media_right_clicked)
+        dpg.add_item_hover_handler(callback=_on_media_hover)
+        dpg.add_item_clicked_handler(button=dpg.mvMouseButton_Left, callback=_on_media_press)
     with dpg.window(
         tag=_CONTEXT_MENU_TAG,
         popup=True,
@@ -345,6 +391,95 @@ def _do_delete_media(media: Media, dialog_tag: str) -> None:
     dpg.delete_item(dialog_tag)
     if _on_delete_media is not None:
         _on_delete_media(media)
+
+
+def _on_media_hover(sender, app_data) -> None:
+    global _hovered_media, _hover_set_this_tick
+    media = dpg.get_item_user_data(app_data)
+    if isinstance(media, Media):
+        _hovered_media = media
+        _hover_set_this_tick = True
+
+
+def _on_media_press(sender, app_data) -> None:
+    """Capte le mouse-down directement sur l'item — plus fiable que l'état hover."""
+    global _drag_candidate, _drag_start_pos
+    media = dpg.get_item_user_data(app_data[1])
+    if isinstance(media, Media):
+        _drag_candidate = media
+        _drag_start_pos = dpg.get_mouse_pos(local=False)
+
+
+def get_dragging_media() -> "Media | None":
+    return _dragging_media if _drag_active else None
+
+
+def tick() -> None:
+    global _hovered_media, _hover_set_this_tick, _drag_candidate, _drag_start_pos
+    global _dragging_media, _drag_active, _prev_btn_down, _ghost_drawn_for
+
+    # Nettoyage du hover si aucun handler n'a signalé de survol ce tick
+    if not _hover_set_this_tick:
+        _hovered_media = None
+    _hover_set_this_tick = False
+
+    btn = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
+
+    # Seuil de mouvement → drag actif
+    if btn and _drag_candidate is not None and not _drag_active and _drag_start_pos is not None:
+        pos = dpg.get_mouse_pos(local=False)
+        if abs(pos[0] - _drag_start_pos[0]) > 5 or abs(pos[1] - _drag_start_pos[1]) > 5:
+            _drag_active = True
+            _dragging_media = _drag_candidate
+
+    # Fenêtre ghost qui suit le curseur
+    if _drag_active and _dragging_media is not None and dpg.does_item_exist(_DRAG_GHOST_TAG):
+        pos = dpg.get_mouse_pos(local=False)
+        dpg.configure_item(_DRAG_GHOST_TAG, pos=(int(pos[0]) + 16, int(pos[1]) + 16), show=True)
+        if _ghost_drawn_for is not _dragging_media:
+            _ghost_drawn_for = _dragging_media
+            _redraw_ghost(_dragging_media)
+            dpg.focus_item(_DRAG_GHOST_TAG)  # forcer au premier plan à chaque nouveau drag
+    elif dpg.does_item_exist(_DRAG_GHOST_TAG):
+        # Pousser hors de l'écran (coordonnées positives pour éviter le clamping DPG)
+        vw = dpg.get_viewport_width()
+        dpg.configure_item(_DRAG_GHOST_TAG, show=False, pos=[vw + 200, 0])
+
+    # Relâchement
+    if not btn:
+        _drag_candidate = None
+        _drag_start_pos = None
+        _drag_active = False
+        _dragging_media = None
+        _ghost_drawn_for = None
+
+    _prev_btn_down = btn
+
+
+def _redraw_ghost(media: Media) -> None:
+    if not dpg.does_item_exist(_DRAG_GHOST_DL):
+        return
+    dpg.delete_item(_DRAG_GHOST_DL, children_only=True)
+    tw, th = thumbnails.THUMB_W, thumbnails.THUMB_H
+    texture_tag = f"texture_{media.id}"
+    if dpg.does_item_exist(texture_tag):
+        dpg.draw_image(texture_tag, (0, 0), (tw, th), parent=_DRAG_GHOST_DL)
+    # Voile semi-transparent pour l'effet ghost
+    dpg.draw_rectangle(
+        (0, 0), (tw, th),
+        fill=(0, 0, 0, 90),
+        color=(100, 200, 120, 180),
+        thickness=2,
+        parent=_DRAG_GHOST_DL,
+    )
+    # Nom du média en dessous
+    name = _truncate(media.path.stem, tw)
+    dpg.draw_text(
+        (2, th + 2), name,
+        color=(220, 225, 235, 230),
+        size=12,
+        parent=_DRAG_GHOST_DL,
+    )
 
 
 def bind_delete_media(fn: Callable[[Media], None]) -> None:

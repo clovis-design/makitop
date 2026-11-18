@@ -6,6 +6,8 @@ from makitop.ui.panels.timeline.panel import (
     add_clip,
     bind_clip_moved,
     bind_delete,
+    bind_get_dragging_media,
+    bind_media_drop,
     bind_seek,
     bind_select,
     bind_track_reordered,
@@ -33,12 +35,15 @@ _last_project_id: int | None = None
 def bind(editor, on_error=None) -> None:
     global _editor
     _editor = editor
+    from makitop.ui.panels import media as media_panel
     bind_seek(editor.seek)
     bind_delete(lambda clip: _bridge_delete(editor, clip))
     bind_clip_moved(lambda clip: _bridge_drag(editor, clip))
     bind_track_reordered(lambda: _bridge_reorder(editor))
     bind_select(lambda clip: editor.select(clip.id))
     bind_zoom(editor.set_timeline_zoom)
+    bind_get_dragging_media(media_panel.get_dragging_media)
+    bind_media_drop(lambda media, start, row: _bridge_media_drop(editor, media, start, row))
 
 
 def refresh() -> None:
@@ -72,6 +77,21 @@ def _bridge_delete(editor, clip) -> None:
 def _bridge_drag(editor, clip) -> None:
     """Le clip a déjà été modifié en place (timeline_start mis à jour)."""
     editor._edited()
+
+
+def _bridge_media_drop(editor, media, start: float, target_row: int) -> None:
+    """Crée un clip à la position de drop et insère la nouvelle piste à target_row."""
+    from makitop.ui.panels.timeline.panel import move_track_to
+    try:
+        editor.add_media(media, start)
+        # add_media → _edited() → refresh() → nouveau clip en _tracks[0]
+        # On le déplace à la ligne cible si ce n'est pas déjà la bonne
+        clamped = min(target_row, len(get_track_rows()) - 1)
+        if clamped > 0:
+            move_track_to(0, clamped)
+            _bridge_reorder(editor)
+    except ValueError:
+        pass
 
 
 def _bridge_reorder(editor) -> None:

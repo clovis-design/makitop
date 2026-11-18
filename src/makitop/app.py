@@ -184,6 +184,7 @@ def main() -> None:
                     message.show("Lecture impossible", str(exc))
 
             timeline_panel.tick()
+            media_panel.tick()
             export_dialog.tick()
             dpg.render_dearpygui_frame()
 
