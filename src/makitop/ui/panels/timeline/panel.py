@@ -57,6 +57,7 @@ _tracks: list[list[BaseClip]] = []
 _playhead_sec: float = 0.0
 _on_seek = None            # Callable[[float], None]
 _on_delete = None          # Callable[[MediaClip], None]
+_on_split = None           # Callable[[], None]
 _on_clip_moved = None      # Callable[[MediaClip], None]  — drag d'un clip
 _on_track_reordered = None # Callable[[], None]           — réordonnancement ▲/▼
 _on_select = None          # Callable[[MediaClip], None]
@@ -118,6 +119,10 @@ def create() -> None:
             with dpg.tooltip("timeline_zoom_in"):
                 dpg.add_text("Zoom avant  [Ctrl++]")
             dpg.add_separator()
+            dpg.add_button(label="Couper", tag="timeline_split_clip",
+                           callback=_split_at_playhead)
+            with dpg.tooltip("timeline_split_clip"):
+                dpg.add_text("Découper le clip à la position de lecture  [Ctrl+B]")
             dpg.add_button(label="Supprimer", tag="timeline_delete_clip", enabled=False,
                            callback=delete_selected)
             with dpg.tooltip("timeline_delete_clip"):
@@ -232,6 +237,16 @@ def bind_seek(fn) -> None:
 def bind_delete(fn) -> None:
     global _on_delete
     _on_delete = fn
+
+
+def bind_split(fn) -> None:
+    global _on_split
+    _on_split = fn
+
+
+def _split_at_playhead() -> None:
+    if _on_split is not None:
+        _on_split()
 
 
 def bind_clip_moved(fn) -> None:

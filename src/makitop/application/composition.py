@@ -1,5 +1,6 @@
 """Édition de la composition ; le lecteur reçoit toujours un instantané indépendant."""
 
+import uuid
 from dataclasses import replace
 from math import ceil
 
@@ -338,6 +339,47 @@ class CompositionEditor:
         for track, current in enumerate(rows):
             current.track = min(track, 99)
         self._edited()
+
+    def split_at_playhead(self):
+        t = self.playback.current_time()
+        timeline = self.project.timeline
+        clips_to_split = [
+            c for c in timeline.clips
+            if c.timeline_start + 1e-6 < t < c.timeline_end - 1e-6
+        ]
+        if not clips_to_split:
+            return
+        for clip in clips_to_split:
+            local_t = t - clip.timeline_start
+            left_kf = tuple(k for k in clip.keyframes if k.time <= local_t)
+            right_kf = tuple(
+                replace(k, time=k.time - local_t)
+                for k in clip.keyframes if k.time >= local_t
+            )
+            if isinstance(clip, MediaClip):
+                left = replace(clip,
+                               source_end=clip.source_start + local_t,
+                               keyframes=left_kf)
+                right = replace(clip,
+                                id=uuid.uuid4().hex,
+                                timeline_start=t,
+                                source_start=clip.source_start + local_t,
+                                keyframes=right_kf)
+            elif isinstance(clip, ImageClip):
+                left = replace(clip, display_duration=local_t, keyframes=left_kf)
+                right = replace(clip,
+                                id=uuid.uuid4().hex,
+                                timeline_start=t,
+                                display_duration=clip.timeline_end - t,
+                                keyframes=right_kf)
+            else:
+                continue
+            timeline.remove_clip(clip.id)
+            timeline.add_clip(left)
+            timeline.add_clip(right)
+            if self.selected_id == clip.id:
+                self.selected_id = left.id
+        self._edited(t)
 
     def set_timeline_zoom(self, pixels_per_second):
         pass
