@@ -12,7 +12,7 @@ from makitop.application.projects import ProjectSession
 from makitop.application.timeline_playback import TimelinePlaybackController
 from makitop.model.media import Media
 from makitop.storage.recent import RecentProjects, config_dir
-from makitop.ui import home, main_window, menu_bar, screens
+from makitop.ui import home, main_window, menu_bar, screens, shortcuts
 from makitop.ui.dialogs import import_media, message, project_file
 from makitop.ui.dialogs.export_video import ExportDialog
 from makitop.ui.panels import effects as effects_panel
@@ -105,9 +105,14 @@ def main() -> None:
         _SEEK_STEP = 5.0
 
         def _on_playback_key(sender, key: int) -> None:
-            if screens.home_shown() or export_dialog.blocks_editor():
+            if (screens.home_shown() or export_dialog.blocks_editor()
+                    or shortcuts.text_input_active()):
                 return
-            if key == dpg.mvKey_Spacebar:
+            if key == dpg.mvKey_F and not shortcuts.ctrl_down():
+                main_window.toggle_fullscreen()
+            elif key == dpg.mvKey_Escape and main_window.is_fullscreen():
+                main_window.set_fullscreen(False)
+            elif key == dpg.mvKey_Spacebar:
                 if playback_controller.is_playing():
                     playback_controller.pause()
                 else:

@@ -16,6 +16,10 @@ COLORS = {
     "accent_active": (85, 145, 205, 255),
     "danger": (140, 42, 52, 255),
     "danger_hover": (170, 55, 65, 255),
+    # Viewer (panneau Preview)
+    "viewer_bg": (6, 9, 22, 255),
+    "viewer_frame": (70, 78, 110, 255),
+    "timecode": (235, 236, 242, 255),
 }
 
 # --- POLICES ---

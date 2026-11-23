@@ -57,7 +57,7 @@ def install(
     def on_key(sender, key: int) -> None:
         if blocked is not None and blocked():
             return
-        action = find_action(key, _ctrl_down(), _shift_down(), actions)
+        action = find_action(key, ctrl_down(), _shift_down(), actions)
         if action is not None:
             action()
 
@@ -65,7 +65,22 @@ def install(
         dpg.add_key_press_handler(callback=on_key)
 
 
-def _ctrl_down() -> bool:
+_EDITABLE_TYPES = {
+    f"mvAppItemType::{name}" for name in (
+        "mvInputText", "mvInputFloat", "mvInputInt", "mvInputDouble",
+        "mvDragFloat", "mvDragInt", "mvSliderFloat", "mvSliderInt",
+    )
+}
+
+
+def text_input_active() -> bool:
+    """Vrai si un champ est en cours d'édition : les touches seules (F, Espace…) vont alors
+    au champ et ne doivent pas déclencher de raccourci."""
+    return any(dpg.get_item_type(item) in _EDITABLE_TYPES and dpg.is_item_active(item)
+               for item in dpg.get_all_items())
+
+
+def ctrl_down() -> bool:
     return dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl)
 
 

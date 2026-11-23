@@ -13,6 +13,11 @@ from makitop.ui.layout import compute_layout
 from makitop.ui.panels import media, preview, properties, sidebar, timeline
 
 ROOT = "main_window"
+TOP_ROW = "main_top_row"
+FULLSCREEN_WINDOW = "fullscreen_window"
+FULLSCREEN_THEME = "fullscreen_theme"
+
+_fullscreen = False
 
 def apply_global_style() -> None:
     """Applique les couleurs et la police globales à toute l'interface."""
@@ -31,6 +36,17 @@ def apply_global_style() -> None:
             
     dpg.bind_item_theme(ROOT, main_theme)
 
+    with dpg.theme(tag=FULLSCREEN_THEME):
+        with dpg.theme_component(dpg.mvWindowAppItem):
+            dpg.add_theme_color(dpg.mvThemeCol_WindowBg, COLORS["viewer_bg"])
+            dpg.add_theme_style(dpg.mvStyleVar_WindowBorderSize, 0)
+            dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
+        with dpg.theme_component(dpg.mvChildWindow):
+            dpg.add_theme_color(dpg.mvThemeCol_ChildBg, COLORS["bg_main"])
+        with dpg.theme_component(dpg.mvAll):
+            dpg.add_theme_color(dpg.mvThemeCol_Text, COLORS["text_main"])
+    dpg.bind_item_theme(FULLSCREEN_WINDOW, FULLSCREEN_THEME)
+
 def setup_fonts() -> None:
     """Charge les polices en mémoire AVANT la construction de l'interface."""
     if os.path.exists(FONT_INTER):
@@ -41,6 +57,7 @@ def setup_fonts() -> None:
             default_font = dpg.add_font(FONT_INTER, 16)
             # Taille 10 est souvent plus lisible que 8 pour les petits écrans
             dpg.add_font(FONT_INTER, 15, tag="small_text_font")
+            dpg.add_font(FONT_INTER, 19, tag="timecode_font")
             
         dpg.bind_font(default_font)
     else:
@@ -55,6 +72,8 @@ def build(
 ) -> None:
     """`actions` associe un libellé de menu (voir menu_bar.MENUS) à la fonction à appeler.
     Les raccourcis clavier (ui/shortcuts.py) déclenchent les mêmes actions."""
+    global _fullscreen
+    _fullscreen = False
     actions = actions or {}
     shortcuts.install(actions, blocked=block_shortcuts)
     preview.create_video_texture()
@@ -65,15 +84,54 @@ def build(
             sidebar.create()
             media.create(on_media_selected, actions.get(menu_bar.IMPORT_MEDIA), on_add_to_timeline)
             with dpg.group():
-                with dpg.group(horizontal=True):
-                    preview.create(playback=playback_controller)
+                with dpg.group(horizontal=True, tag=TOP_ROW):
+                    preview.create(playback=playback_controller,
+                                   on_toggle_fullscreen=toggle_fullscreen)
                     properties.create()
                 timeline.create()
+    # Fenêtre du plein écran : le panneau preview y est déplacé tel quel (voir set_fullscreen).
+    with dpg.window(tag=FULLSCREEN_WINDOW, no_title_bar=True, no_move=True, no_resize=True,
+                    no_scrollbar=True, show=False):
+        pass
     apply_global_style()
     sidebar.select(media.DEFAULT_SECTION)
 
 
+def is_fullscreen() -> bool:
+    return _fullscreen
+
+
+def toggle_fullscreen() -> None:
+    set_fullscreen(not _fullscreen)
+
+
+def set_fullscreen(on: bool) -> None:
+    """Plein écran du viewer : seul le panneau preview reste, sur tout l'écran."""
+    global _fullscreen
+    if on == _fullscreen:
+        return
+    _fullscreen = on
+    if on:
+        dpg.move_item(preview.TAG, parent=FULLSCREEN_WINDOW)
+        dpg.hide_item(ROOT)
+        dpg.show_item(FULLSCREEN_WINDOW)
+        dpg.set_primary_window(FULLSCREEN_WINDOW, True)
+    else:
+        dpg.move_item(preview.TAG, parent=TOP_ROW, before=properties.TAG)
+        dpg.hide_item(FULLSCREEN_WINDOW)
+        dpg.show_item(ROOT)
+        dpg.set_primary_window(ROOT, True)
+    preview.set_fullscreen(on)
+    if dpg.is_viewport_ok():  # pas de viewport dans les tests
+        dpg.toggle_viewport_fullscreen()
+        resize(dpg.get_viewport_client_width(), dpg.get_viewport_client_height())
+
+
 def resize(width: int, height: int) -> None:
+    if _fullscreen:
+        dpg.configure_item(preview.TAG, width=width, height=height)
+        preview.resize(width, height)
+        return
     layout = compute_layout(width, height)
     for tag, size in (
         (sidebar.TAG, layout.sidebar),

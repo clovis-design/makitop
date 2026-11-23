@@ -5,7 +5,7 @@ import numpy as np
 
 ICON_SIZE = 16
 COLOR = (205, 205, 210)
-NAMES = ("start", "stop", "play", "pause", "end")
+NAMES = ("start", "stop", "play", "pause", "end", "fullscreen", "exit_fullscreen")
 REGISTRY = "transport_texture_registry"
 _SUPERSAMPLE = 4
 
@@ -38,6 +38,13 @@ def _mask(name, x, y):
             x, y, (0.84, 0.16), (0.84, 0.84), (0.3, 0.5))
     if name == "end":
         return _mask("start", 1 - x, y)
+    if name in ("fullscreen", "exit_fullscreen"):
+        # Une équerre par coin, symétrique : on ramène tout au coin haut gauche.
+        u, v = np.minimum(x, 1 - x), np.minimum(y, 1 - y)
+        if name == "fullscreen":  # équerres collées aux bords, ouvertes vers le centre
+            return (_rect(u, v, 0.08, 0.08, 0.38, 0.2) | _rect(u, v, 0.08, 0.08, 0.2, 0.38))
+        # Équerres tournées vers l'extérieur : leur angle pointe vers le centre.
+        return (_rect(u, v, 0.08, 0.26, 0.38, 0.38) | _rect(u, v, 0.26, 0.08, 0.38, 0.38))
     raise KeyError(name)
 
 
