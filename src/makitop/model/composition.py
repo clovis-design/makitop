@@ -16,11 +16,17 @@ class Transform:
     crop_top: float = 0.0
     crop_right: float = 0.0
     crop_bottom: float = 0.0
+    rotation: float = 0.0  # degrés, sens horaire
+    flip_horizontal: bool = False
+    flip_vertical: bool = False
 
     def __post_init__(self):
         values = vars(self).values()
         if not all(math.isfinite(v) for v in values):
             raise ValueError("La géométrie doit contenir des valeurs finies.")
+        if (not -180 <= self.rotation <= 180
+                or type(self.flip_horizontal) is not bool or type(self.flip_vertical) is not bool):
+            raise ValueError("Orientation de calque invalide.")
         if not (0 < self.width <= 8 and 0 < self.height <= 8):
             raise ValueError("Taille de calque invalide.")
         if abs(self.x) > 8 or abs(self.y) > 8:
@@ -31,6 +37,22 @@ class Transform:
             or self.crop_top + self.crop_bottom >= 0.99
         ):
             raise ValueError("Le recadrage doit conserver une partie visible de l'image.")
+
+
+def normalize_angle(degrees: float) -> float:
+    if not math.isfinite(degrees):
+        raise ValueError("La rotation doit être finie.")
+    return degrees if -180 <= degrees <= 180 else (degrees + 180) % 360 - 180
+
+
+def rotate_point(point, center, degrees, ratio=1.0):
+    """Rotation horaire dans le repère écran, sans déformer les coordonnées normalisées."""
+    if not degrees:
+        return point
+    radians = math.radians(degrees)
+    cos, sin = math.cos(radians), math.sin(radians)
+    x, y = (point[0] - center[0]) * ratio, point[1] - center[1]
+    return center[0] + (x * cos - y * sin) / ratio, center[1] + x * sin + y * cos
 
 
 def fitted_bounds(transform, media_width, media_height, canvas_ratio):

@@ -5,7 +5,7 @@ from makitop.application.composition import CompositionEditor
 from makitop.application.projects import ProjectSession
 from makitop.application.timeline_playback import TimelinePlaybackController
 from makitop.media.probe import probe
-from makitop.model.composition import Transform, fitted_bounds
+from makitop.model.composition import Transform, fitted_bounds, rotate_point
 from makitop.storage.recent import RecentProjects
 from makitop.ui import main_window
 from makitop.ui.panels import media, preview, properties, timeline
@@ -127,6 +127,39 @@ def test_inspector_transform_crop_and_effects(editor, video_file, monkeypatch):
     assert dpg.get_value(properties.TABS) == properties.TAB_EFFECTS
     dpg.get_item_callback(properties.effect_slider_tag(0))(None, 20, (0, 100))
     assert editor.selected.effects[0].amount == pytest.approx(0.2)
+
+
+def test_rotation_handle_and_mirror_controls(editor, video_file, monkeypatch):
+    editor, errors = editor
+    editor.add_media(probe(video_file))
+    assert dpg.does_item_exist("preview_rotation_handle")
+    dpg.get_item_callback("clip_flip_horizontal")(None, True)
+    assert editor.selected.transform.flip_horizontal
+    assert dpg.get_value("clip_flip_horizontal")
+    dpg.get_item_callback("clip_flip_vertical")(None, True)
+    assert editor.selected.transform.flip_vertical
+    assert dpg.get_value("clip_flip_vertical")
+
+    dpg.get_item_callback("clip_rotation")(None, 30)
+    assert editor.selected.transform.rotation == 30
+    editor.toggle_keyframe("x")
+    editor.set_selected_keyframe_value(0.1)
+    keys = editor.selected.keyframes
+    bounds = preview._bounds(editor.selected)
+    _, handle = preview._rotation_handle(bounds, 30)
+    point = list(handle)
+    monkeypatch.setattr(preview, "_mouse", lambda: tuple(point))
+    preview._click()
+    sw, sh = preview._size
+    point[:] = rotate_point(handle, preview._bounds_center(bounds), 90, sw / sh)
+    preview._drag()
+    preview._release()
+    assert editor.selected.transform.rotation == pytest.approx(120)
+    assert dpg.get_value("clip_rotation") == pytest.approx(120)
+    assert editor.selected.keyframes == keys
+    assert editor.selected.transform.flip_horizontal
+    assert editor.selected.transform.flip_vertical
+    assert not errors
 
 
 def test_timeline_drag_and_trim(editor, video_file, monkeypatch):

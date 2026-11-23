@@ -30,8 +30,8 @@ from makitop.ui.panels.timeline.panel import (
     zoom_out,
     get_clip_ids,
     get_track_rows,
+    set_clips,
     set_playhead,
-    set_selected,
     set_zoom,
     tick,
 )
@@ -90,10 +90,7 @@ def refresh() -> None:
         return
     project_id = id(_editor.project)
     is_new_project = project_id != _last_project_id
-    clear()
-    for clip in _editor.project.timeline.clips:
-        add_clip(clip)
-    set_selected(_editor.selected_id, _editor.selected_keyframe)
+    set_clips(_editor.project.timeline.clips, _editor.selected_id, _editor.selected_keyframe)
     update_undo_redo_buttons(_editor.can_undo, _editor.can_redo)
     if is_new_project:
         _last_project_id = project_id
@@ -140,6 +137,7 @@ def _bridge_delete(editor, clip) -> None:
     editor.project.timeline.remove_clip(clip.id)
     if editor.selected_id == clip.id:
         editor.selected_id = None
+        editor.selected_keyframe = None
     editor._edited()
 
 
@@ -153,12 +151,12 @@ def _bridge_media_drop(editor, media, start: float, target_row: int) -> None:
     """Crée un clip à la position de drop et insère la nouvelle piste à target_row."""
     from makitop.ui.panels.timeline.panel import move_track_to
     try:
-        editor.add_media(media, start)
-        # add_media → _edited() → refresh() → nouveau clip en _tracks[0]
-        # On le déplace à la ligne cible si ce n'est pas déjà la bonne
-        clamped = min(target_row, len(get_track_rows()) - 1)
-        if clamped > 0:
-            move_track_to(0, clamped)
+        clip = editor.add_media(media, start)
+        rows = get_track_rows()
+        source_row = next(i for i, row in enumerate(rows) if clip.id in row)
+        clamped = min(max(source_row, target_row), len(rows) - 1)
+        if clamped > source_row:
+            move_track_to(source_row, clamped)
             _bridge_reorder(editor)
     except ValueError:
         pass
@@ -173,13 +171,10 @@ def _bridge_reorder(editor) -> None:
     editor.push_undo()
     track_rows = get_track_rows()  # list[list[str]], haut → bas
     id_to_clip = {c.id: c for c in editor.project.timeline.clips}
-    n_tracks = len(track_rows)
-    # Piste en haut (index 0) = valeur track la plus haute = devant dans le lecteur
-    for row_idx, row_ids in enumerate(track_rows):
-        track_val = n_tracks - 1 - row_idx
+    for track, row_ids in enumerate(reversed(track_rows)):
         for cid in row_ids:
             if cid in id_to_clip:
-                id_to_clip[cid].track = track_val
+                id_to_clip[cid].track = min(track, 99)
     # Synchroniser l'ordre de editor.project.timeline.clips
     all_ids = [cid for row in track_rows for cid in row]
     panel_set = set(all_ids)

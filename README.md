@@ -30,9 +30,45 @@ Chaque ajout crée une nouvelle piste. Déplacer le calque à la souris, tirer s
 coins pour le redimensionner, ou activer **Recadrer** pour rogner ses bords.
 Le format du cadre (16:9, 9:16, 1:1) se choisit au-dessus de la composition.
 
+Dans **Propriétés → Vidéo → Transformation**, **Rotation** fait pivoter le
+calque, **Miroir horizontal** inverse la gauche et la droite, et **Miroir vertical**
+inverse le haut et le bas. Hors mode
+**Recadrer**, la poignée ronde du lecteur permet aussi de faire pivoter
+le calque sélectionné avec la souris.
+
 La timeline règle la position et la durée des clips ; le panneau **Propriétés**
 permet de changer leur ordre, leur volume ou de les rendre muets.
 Voir le [guide de composition et de lecture](docs/timeline-playback.md).
+
+Dans **Propriétés → Vidéo → Temps**, le curseur **Vitesse** propose des valeurs
+prédéfinies de **0,25× à 8×** et s'applique au clip
+sélectionné : à **2×**, un clip de deux minutes n'occupe plus qu'une minute.
+Le début du clip et sa coupe source sont conservés ; ses images clés suivent
+le changement de vitesse. L'image et le son sont accélérés ou ralentis
+ensemble, sans correction de la hauteur du son.
+
+### Ajouter du texte
+
+Placer la tête de lecture, ouvrir **Texte** dans la barre latérale et cliquer sur
+une vignette : **Titre**, **Intertitre**, **Sous-titre**, **Paragraphe**,
+**Citation**, **Légende**, **Cartouche**, **Chapitre** ou **Générique**. Le clip
+apparaît devant par défaut. L’ordre est commun aux textes, images et vidéos :
+les pistes plus hautes passent devant. Utiliser **Devant** ou **Derrière** dans
+les propriétés, les flèches des pistes, ou déplacer le clip dans la timeline.
+Sa zone peut aussi être déplacée directement dans le lecteur.
+
+La catégorie **Styles typographiques** propose aussi **Éditorial**, **Élégant**
+et **Terminal**, avec des polices intégrées qui ne dépendent pas de la machine.
+
+Sélectionner le clip pour ouvrir l'onglet **Texte** des propriétés : modifier le
+contenu, la police, la taille, la couleur, l'alignement, la zone et la durée. Le texte est
+enregistré dans le projet et apparaît aussi dans le MP4 exporté. L’onglet
+**Images clés** permet d’animer la position, les dimensions, le zoom et
+l’opacité du texte (par exemple pour un fondu).
+
+Un réglage animé est grisé dans les autres onglets : cliquer sur **◆ Animé**
+ouvre sa clé la plus proche dans **Images clés**. Retirer sa dernière clé
+réactive le réglage.
 
 ### Qualité et fluidité du lecteur
 

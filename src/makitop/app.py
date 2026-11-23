@@ -62,6 +62,12 @@ def main() -> None:
         except ValueError as exc:
             composition_error(str(exc))
 
+    def on_add_text(preset: str) -> None:
+        try:
+            editor.add_text(preset)
+        except ValueError as exc:
+            composition_error(str(exc))
+
     def refresh_project_media() -> None:
         preview.clear()
         timeline_panel.clear()
@@ -98,6 +104,7 @@ def main() -> None:
             on_media_selected=select_media,
             on_add_to_timeline=on_add_to_timeline,
             block_shortcuts=export_dialog.blocks_editor,
+            on_add_text=on_add_text,
         )
         home.create(on_new=project_file.new_project, on_open=project_file.open_dialog)
         import_media.create(on_files_selected=importer.import_files)
@@ -106,7 +113,8 @@ def main() -> None:
 
         def _on_playback_key(sender, key: int) -> None:
             if (screens.home_shown() or export_dialog.blocks_editor()
-                    or shortcuts.text_input_active()):
+                    or shortcuts.text_input_active()
+                    or dpg.is_item_active(properties.TEXT_CONTENT)):
                 return
             ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl)
             if key == dpg.mvKey_F and not shortcuts.ctrl_down():
