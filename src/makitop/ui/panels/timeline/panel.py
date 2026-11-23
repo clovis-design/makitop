@@ -33,7 +33,7 @@ _MIN_CONTENT_W = 800
 
 # ── Zoom ──────────────────────────────────────────────────────────────────────
 _ZOOM_LEVELS = [1, 2, 3, 4, 5, 6, 8, 10, 13, 16, 20, 25, 32, 40, 50, 63, 80, 100,
-                125, 155, 195, 245, 310, 390]
+                125, 155, 195, 245, 275, 310, 350, 390]
 _DEFAULT_ZOOM_IDX = 17  # 100 px/s par défaut
 _zoom_idx: int = _DEFAULT_ZOOM_IDX
 _px_per_sec: int = _ZOOM_LEVELS[_DEFAULT_ZOOM_IDX]

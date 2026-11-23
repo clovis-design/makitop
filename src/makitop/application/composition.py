@@ -340,9 +340,7 @@ class CompositionEditor:
         self._edited()
 
     def set_timeline_zoom(self, pixels_per_second):
-        if pixels_per_second != self.project.view.timeline_zoom:
-            self.project.view.timeline_zoom = pixels_per_second
-            self.session.mark_dirty()
+        pass
 
     def _edited(self, position=None):
         playing = self.playback.is_playing() and not self.source_mode

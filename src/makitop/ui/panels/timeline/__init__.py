@@ -79,12 +79,7 @@ def refresh() -> None:
     set_selected(_editor.selected_id, _editor.selected_keyframe)
     if is_new_project:
         _last_project_id = project_id
-        saved_zoom = _editor.project.view.timeline_zoom
-        from makitop.model.project import DEFAULT_TIMELINE_ZOOM
-        if saved_zoom != DEFAULT_TIMELINE_ZOOM:
-            set_zoom(saved_zoom)
-        else:
-            fit_zoom()
+        fit_zoom()
 
 
 def _bridge_delete(editor, clip) -> None:
