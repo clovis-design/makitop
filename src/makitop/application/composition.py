@@ -20,6 +20,7 @@ class CompositionEditor:
         self.selected_id = None
         self.selected_keyframe = None
         self.source_mode = False
+        self._clipboard = None
 
     @property
     def project(self):
@@ -403,6 +404,36 @@ class CompositionEditor:
             if self.selected_id == clip.id:
                 self.selected_id = left.id
         self._edited(t)
+
+    def copy_selected(self):
+        if self.selected is not None:
+            self._clipboard = self.selected
+
+    def paste_clip(self):
+        if self._clipboard is None:
+            return
+        clip = self._clipboard
+        new_start = self.playback.current_time()
+        new_end = new_start + clip.duration
+        same_track_free = not any(
+            c.track == clip.track
+            and c.timeline_start < new_end - 1e-6
+            and c.timeline_end > new_start + 1e-6
+            for c in self.project.timeline.clips
+        )
+        if same_track_free:
+            target_track = clip.track
+        else:
+            existing = self.project.timeline.clips
+            target_track = (max(c.track for c in existing) + 1) if existing else 0
+        new_id = uuid.uuid4().hex
+        if isinstance(clip, (MediaClip, ImageClip)):
+            pasted = replace(clip, id=new_id, timeline_start=new_start, track=target_track)
+        else:
+            return
+        self.project.timeline.add_clip(pasted)
+        self.selected_id = new_id
+        self._edited(new_start)
 
     def duplicate_selected(self):
         clip = self.selected

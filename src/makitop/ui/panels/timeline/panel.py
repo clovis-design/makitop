@@ -59,6 +59,8 @@ _on_seek = None            # Callable[[float], None]
 _on_delete = None          # Callable[[MediaClip], None]
 _on_split = None           # Callable[[], None]
 _on_duplicate = None       # Callable[[], None]
+_on_copy = None            # Callable[[], None]
+_on_paste = None           # Callable[[], None]
 _on_clip_moved = None      # Callable[[MediaClip], None]  — drag d'un clip
 _on_track_reordered = None # Callable[[], None]           — réordonnancement ▲/▼
 _on_select = None          # Callable[[MediaClip], None]
@@ -128,6 +130,14 @@ def create() -> None:
                            callback=_duplicate_selected)
             with dpg.tooltip("timeline_duplicate_clip"):
                 dpg.add_text("Dupliquer le clip sélectionné  [Ctrl+D]")
+            dpg.add_button(label="Copier", tag="timeline_copy_clip", enabled=False,
+                           callback=_copy_selected)
+            with dpg.tooltip("timeline_copy_clip"):
+                dpg.add_text("Copier le clip sélectionné  [Ctrl+C]")
+            dpg.add_button(label="Coller", tag="timeline_paste_clip",
+                           callback=_paste_clip)
+            with dpg.tooltip("timeline_paste_clip"):
+                dpg.add_text("Coller le clip copié au playhead  [Ctrl+V]")
             dpg.add_button(label="Supprimer", tag="timeline_delete_clip", enabled=False,
                            callback=delete_selected)
             with dpg.tooltip("timeline_delete_clip"):
@@ -264,6 +274,26 @@ def _duplicate_selected() -> None:
         _on_duplicate()
 
 
+def bind_copy(fn) -> None:
+    global _on_copy
+    _on_copy = fn
+
+
+def bind_paste(fn) -> None:
+    global _on_paste
+    _on_paste = fn
+
+
+def _copy_selected() -> None:
+    if _on_copy is not None:
+        _on_copy()
+
+
+def _paste_clip() -> None:
+    if _on_paste is not None:
+        _on_paste()
+
+
 def bind_clip_moved(fn) -> None:
     global _on_clip_moved
     _on_clip_moved = fn
@@ -318,7 +348,7 @@ def set_selected(clip_id: str | None, keyframe=None) -> None:
     global _selected_clip, _selected_keyframe
     _selected_clip = next((c for c in _all_clips() if c.id == clip_id), None) if clip_id else None
     _selected_keyframe = keyframe
-    for tag in ("timeline_delete_clip", "timeline_duplicate_clip"):
+    for tag in ("timeline_delete_clip", "timeline_duplicate_clip", "timeline_copy_clip"):
         if dpg.does_item_exist(tag):
             dpg.configure_item(tag, enabled=_selected_clip is not None)
     _redraw()
