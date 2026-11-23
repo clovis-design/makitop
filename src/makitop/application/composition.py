@@ -1,5 +1,6 @@
 """Édition de la composition ; le lecteur reçoit toujours un instantané indépendant."""
 
+import copy
 import uuid
 from dataclasses import replace
 from math import ceil
@@ -21,6 +22,9 @@ class CompositionEditor:
         self.selected_keyframe = None
         self.source_mode = False
         self._clipboard = None
+        self._undo_stack: list = []
+        self._redo_stack: list = []
+        self._MAX_UNDO = 50
 
     @property
     def project(self):
@@ -57,6 +61,7 @@ class CompositionEditor:
         return MediaClip(start, media, 0, media.duration, track=track)
 
     def add_media(self, media, start=None):
+        self.push_undo()
         if start is None:
             start = 0 if self.source_mode else self.playback.current_time()
         track = max((c.track for c in self.project.timeline.clips), default=-1) + 1
@@ -79,6 +84,7 @@ class CompositionEditor:
             self.on_refresh()
 
     def update_clip(self, clip_id, *, position=None, **changes):
+        self.push_undo()
         clips = self.project.timeline.clips
         index = next(i for i, c in enumerate(clips) if c.id == clip_id)
         clip = clips[index]
@@ -231,20 +237,24 @@ class CompositionEditor:
             self.select_keyframe(clip.id, key.property, key.time)
 
     def set_format(self, value):
+        self.push_undo()
         if value not in FORMATS:
             raise ValueError("Format de composition inconnu.")
         self.project.canvas_format = value
         self._edited()
 
     def set_fps(self, value):
+        self.push_undo()
         # Valide avant de modifier le projet ; les positions restent en secondes.
         timeline = replace(self.project.timeline, fps=value)
         self.project.timeline = timeline
         self._edited()
 
     def move_layer(self, direction):
+        self.push_undo()
         clip = self.selected
         if clip is None:
+            self._undo_stack.pop()
             return
         target = clip.track + direction
         if not 0 <= target <= 99:
@@ -281,20 +291,22 @@ class CompositionEditor:
         self.update_clip(clip.id, effects=clip.effects[:index] + clip.effects[index + 1:])
 
     def reset_transform(self):
-        if self.selected is not None:
-            clip = self.selected
-            # Réinitialiser enlève aussi l'animation géométrique, en conservant le son.
-            self.selected_keyframe = None
-            clips = self.project.timeline.clips
-            index = next(i for i, c in enumerate(clips) if c.id == clip.id)
-            clips[index] = replace(clip, transform=Transform(), keyframes=tuple(
-                k for k in clip.keyframes if k.property == "volume"
-            ))
-            self._edited()
+        if self.selected is None:
+            return
+        self.push_undo()
+        clip = self.selected
+        self.selected_keyframe = None
+        clips = self.project.timeline.clips
+        index = next(i for i, c in enumerate(clips) if c.id == clip.id)
+        clips[index] = replace(clip, transform=Transform(), keyframes=tuple(
+            k for k in clip.keyframes if k.property == "volume"
+        ))
+        self._edited()
 
     def remove_selected(self):
         if self.selected is None:
             return
+        self.push_undo()
         self.project.timeline.remove_clip(self.selected_id)
         self.selected_id = None
         self.selected_keyframe = None
@@ -331,6 +343,7 @@ class CompositionEditor:
         prochain rafraîchissement et n'est pas enregistré. Les pistes sont renumérotées
         0, 1, 2... dans le nouvel ordre : descendre une ligne fait passer le clip devant.
         """
+        self.push_undo()
         rows = self.rows()
         clip = next((c for c in rows if c.id == clip_id), None)
         if clip is None:
@@ -358,6 +371,7 @@ class CompositionEditor:
         ]
         if not clips_to_split:
             return
+        self.push_undo()
         for clip in clips_to_split:
             local_t = t - clip.timeline_start
             left_kf = tuple(k for k in clip.keyframes if k.time <= local_t)
@@ -413,6 +427,7 @@ class CompositionEditor:
         clip = self.selected
         if clip is None:
             return
+        self.push_undo()
         self._clipboard = clip
         self.project.timeline.remove_clip(clip.id)
         self.selected_id = None
@@ -421,6 +436,7 @@ class CompositionEditor:
     def paste_clip(self):
         if self._clipboard is None:
             return
+        self.push_undo()
         clip = self._clipboard
         new_start = self.playback.current_time()
         new_end = new_start + clip.duration
@@ -448,6 +464,7 @@ class CompositionEditor:
         clip = self.selected
         if clip is None:
             return
+        self.push_undo()
         new_start = clip.timeline_end
         new_end = new_start + clip.duration
         same_track_free = not any(
@@ -472,6 +489,57 @@ class CompositionEditor:
 
     def set_timeline_zoom(self, pixels_per_second):
         pass
+
+    def push_undo(self):
+        self._undo_stack.append({
+            "timeline": copy.deepcopy(self.project.timeline),
+            "selected_id": self.selected_id,
+            "selected_keyframe": self.selected_keyframe,
+            "position": self.playback.current_time(),
+        })
+        if len(self._undo_stack) > self._MAX_UNDO:
+            self._undo_stack.pop(0)
+        self._redo_stack.clear()
+
+    def undo(self):
+        if not self._undo_stack:
+            return
+        self._redo_stack.append({
+            "timeline": copy.deepcopy(self.project.timeline),
+            "selected_id": self.selected_id,
+            "selected_keyframe": self.selected_keyframe,
+            "position": self.playback.current_time(),
+        })
+        self._restore(self._undo_stack.pop())
+
+    def redo(self):
+        if not self._redo_stack:
+            return
+        self._undo_stack.append({
+            "timeline": copy.deepcopy(self.project.timeline),
+            "selected_id": self.selected_id,
+            "selected_keyframe": self.selected_keyframe,
+            "position": self.playback.current_time(),
+        })
+        self._restore(self._redo_stack.pop())
+
+    def _restore(self, snapshot):
+        self.project.timeline = snapshot["timeline"]
+        self.selected_id = snapshot["selected_id"]
+        self.selected_keyframe = snapshot["selected_keyframe"]
+        playing = self.playback.is_playing() and not self.source_mode
+        self.session.mark_dirty()
+        self.show_montage(snapshot["position"])
+        if playing:
+            self.playback.play()
+
+    @property
+    def can_undo(self) -> bool:
+        return bool(self._undo_stack)
+
+    @property
+    def can_redo(self) -> bool:
+        return bool(self._redo_stack)
 
     def _edited(self, position=None):
         playing = self.playback.is_playing() and not self.source_mode

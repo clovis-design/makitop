@@ -62,6 +62,7 @@ _on_duplicate = None       # Callable[[], None]
 _on_copy = None            # Callable[[], None]
 _on_cut = None             # Callable[[], None]
 _on_paste = None           # Callable[[], None]
+_on_drag_start = None      # Callable[[], None]
 _on_clip_moved = None      # Callable[[MediaClip], None]  — drag d'un clip
 _on_track_reordered = None # Callable[[], None]           — réordonnancement ▲/▼
 _on_select = None          # Callable[[MediaClip], None]
@@ -151,6 +152,15 @@ def create() -> None:
                            callback=_split_at_playhead)
             with dpg.tooltip("timeline_split_clip"):
                 dpg.add_text("Découper le clip à la position de lecture  [Ctrl+B]")
+            dpg.add_separator()
+            dpg.add_button(label="↩ Annuler", tag="timeline_undo", enabled=False,
+                           callback=_do_undo)
+            with dpg.tooltip("timeline_undo"):
+                dpg.add_text("Annuler la dernière action  [Ctrl+Z]")
+            dpg.add_button(label="↪ Rétablir", tag="timeline_redo", enabled=False,
+                           callback=_do_redo)
+            with dpg.tooltip("timeline_redo"):
+                dpg.add_text("Rétablir  [Ctrl+Y]")
             dpg.add_separator()
             dpg.add_checkbox(label="Images clés", default_value=True,
                              tag="timeline_show_keyframes", callback=_toggle_keyframes)
@@ -281,6 +291,42 @@ def bind_duplicate(fn) -> None:
 def _duplicate_selected() -> None:
     if _on_duplicate is not None:
         _on_duplicate()
+
+
+def bind_clip_drag_start(fn) -> None:
+    global _on_drag_start
+    _on_drag_start = fn
+
+
+_on_undo = None            # Callable[[], None]
+_on_redo = None            # Callable[[], None]
+
+
+def bind_undo(fn) -> None:
+    global _on_undo
+    _on_undo = fn
+
+
+def bind_redo(fn) -> None:
+    global _on_redo
+    _on_redo = fn
+
+
+def _do_undo() -> None:
+    if _on_undo is not None:
+        _on_undo()
+
+
+def _do_redo() -> None:
+    if _on_redo is not None:
+        _on_redo()
+
+
+def update_undo_redo_buttons(can_undo: bool, can_redo: bool) -> None:
+    if dpg.does_item_exist("timeline_undo"):
+        dpg.configure_item("timeline_undo", enabled=can_undo)
+    if dpg.does_item_exist("timeline_redo"):
+        dpg.configure_item("timeline_redo", enabled=can_redo)
 
 
 def bind_copy(fn) -> None:
@@ -464,6 +510,8 @@ def tick() -> None:
                 if _on_key_select:
                     _on_key_select(_selected_clip.id, key.property, key.time)
             elif clip is not None:
+                if _on_drag_start is not None:
+                    _on_drag_start()
                 _drag_clip = clip
                 _drag_offset_px = local_x - clip.timeline_start * _px_per_sec
                 _drag_source_row = next(

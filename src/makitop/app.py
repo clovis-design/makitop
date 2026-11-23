@@ -125,6 +125,10 @@ def main() -> None:
                 timeline_panel.toggle_keyframes()
             elif ctrl and key == dpg.mvKey_B:
                 timeline_panel.split_at_playhead()
+            elif ctrl and key == dpg.mvKey_Z:
+                timeline_panel.undo()
+            elif ctrl and key == dpg.mvKey_Y:
+                timeline_panel.redo()
             elif ctrl and key == dpg.mvKey_D:
                 timeline_panel.duplicate_selected()
             elif ctrl and key == dpg.mvKey_C:
