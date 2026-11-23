@@ -33,7 +33,7 @@ _MIN_CONTENT_W = 800
 
 # ── Zoom ──────────────────────────────────────────────────────────────────────
 _ZOOM_LEVELS = [1, 2, 3, 4, 5, 6, 8, 10, 13, 16, 20, 25, 32, 40, 50, 63, 80, 100,
-                125, 155, 195, 245, 310, 390]
+                125, 155, 195, 245, 275, 310, 350, 390]
 _DEFAULT_ZOOM_IDX = 17  # 100 px/s par défaut
 _zoom_idx: int = _DEFAULT_ZOOM_IDX
 _px_per_sec: int = _ZOOM_LEVELS[_DEFAULT_ZOOM_IDX]
@@ -57,6 +57,12 @@ _tracks: list[list[BaseClip]] = []
 _playhead_sec: float = 0.0
 _on_seek = None            # Callable[[float], None]
 _on_delete = None          # Callable[[MediaClip], None]
+_on_split = None           # Callable[[], None]
+_on_duplicate = None       # Callable[[], None]
+_on_copy = None            # Callable[[], None]
+_on_cut = None             # Callable[[], None]
+_on_paste = None           # Callable[[], None]
+_on_drag_start = None      # Callable[[], None]
 _on_clip_moved = None      # Callable[[MediaClip], None]  — drag d'un clip
 _on_track_reordered = None # Callable[[], None]           — réordonnancement ▲/▼
 _on_select = None          # Callable[[MediaClip], None]
@@ -109,12 +115,57 @@ def create() -> None:
     with dpg.child_window(tag=TAG, border=True):
         # ── Barre d'outils ────────────────────────────────────────────────────
         with dpg.group(horizontal=True, tag=_TOOLBAR_TAG):
-            dpg.add_button(label="-", width=24, height=22, callback=_zoom_out)
-            dpg.add_button(label="+", width=24, height=22, callback=_zoom_in)
+            # ── Bloc 1 : Zoom ──────────────────────────────────────────────────
+            dpg.add_button(label="-", tag="timeline_zoom_out", width=24, height=22,
+                           callback=_zoom_out)
+            with dpg.tooltip("timeline_zoom_out"):
+                dpg.add_text("Zoom arrière  [Ctrl+-]")
+            dpg.add_button(label="+", tag="timeline_zoom_in", width=24, height=22,
+                           callback=_zoom_in)
+            with dpg.tooltip("timeline_zoom_in"):
+                dpg.add_text("Zoom avant  [Ctrl++]")
+            dpg.add_separator()
+            # ── Bloc 2 : Presse-papier & sélection ────────────────────────────
+            dpg.add_button(label="Copier", tag="timeline_copy_clip", enabled=False,
+                           callback=_copy_selected)
+            with dpg.tooltip("timeline_copy_clip"):
+                dpg.add_text("Copier le clip sélectionné  [Ctrl+C]")
+            dpg.add_button(label="Coller", tag="timeline_paste_clip",
+                           callback=_paste_clip)
+            with dpg.tooltip("timeline_paste_clip"):
+                dpg.add_text("Coller le clip copié au playhead  [Ctrl+V]")
+            dpg.add_button(label="Couper", tag="timeline_cut_clip",
+                           enabled=False, callback=_cut_selected)
+            with dpg.tooltip("timeline_cut_clip"):
+                dpg.add_text("Couper le clip sélectionné  [Ctrl+X]")
+            dpg.add_button(label="Dupliquer", tag="timeline_duplicate_clip", enabled=False,
+                           callback=_duplicate_selected)
+            with dpg.tooltip("timeline_duplicate_clip"):
+                dpg.add_text("Dupliquer le clip sélectionné  [Ctrl+D]")
+            dpg.add_button(label="Supprimer", tag="timeline_delete_clip", enabled=False,
+                           callback=delete_selected)
+            with dpg.tooltip("timeline_delete_clip"):
+                dpg.add_text("Supprimer le clip sélectionné  [Suppr]")
+            dpg.add_separator()
+            # ── Bloc 3 : Outils timeline ───────────────────────────────────────
+            dpg.add_button(label="Découper", tag="timeline_split_clip",
+                           callback=_split_at_playhead)
+            with dpg.tooltip("timeline_split_clip"):
+                dpg.add_text("Découper le clip à la position de lecture  [Ctrl+B]")
+            dpg.add_separator()
+            dpg.add_button(label="↩ Annuler", tag="timeline_undo", enabled=False,
+                           callback=_do_undo)
+            with dpg.tooltip("timeline_undo"):
+                dpg.add_text("Annuler la dernière action  [Ctrl+Z]")
+            dpg.add_button(label="↪ Rétablir", tag="timeline_redo", enabled=False,
+                           callback=_do_redo)
+            with dpg.tooltip("timeline_redo"):
+                dpg.add_text("Rétablir  [Ctrl+Y]")
+            dpg.add_separator()
             dpg.add_checkbox(label="Images clés", default_value=True,
                              tag="timeline_show_keyframes", callback=_toggle_keyframes)
             with dpg.tooltip("timeline_show_keyframes"):
-                dpg.add_text("Afficher les lignes d'animation du clip sélectionné.")
+                dpg.add_text("Afficher/masquer les images clés  [Ctrl+K]")
         dpg.add_separator()
 
         # ── Zone principale : labels (fixe) + timeline (scrollable) ───────────
@@ -222,6 +273,92 @@ def bind_delete(fn) -> None:
     _on_delete = fn
 
 
+def bind_split(fn) -> None:
+    global _on_split
+    _on_split = fn
+
+
+def _split_at_playhead() -> None:
+    if _on_split is not None:
+        _on_split()
+
+
+def bind_duplicate(fn) -> None:
+    global _on_duplicate
+    _on_duplicate = fn
+
+
+def _duplicate_selected() -> None:
+    if _on_duplicate is not None:
+        _on_duplicate()
+
+
+def bind_clip_drag_start(fn) -> None:
+    global _on_drag_start
+    _on_drag_start = fn
+
+
+_on_undo = None            # Callable[[], None]
+_on_redo = None            # Callable[[], None]
+
+
+def bind_undo(fn) -> None:
+    global _on_undo
+    _on_undo = fn
+
+
+def bind_redo(fn) -> None:
+    global _on_redo
+    _on_redo = fn
+
+
+def _do_undo() -> None:
+    if _on_undo is not None:
+        _on_undo()
+
+
+def _do_redo() -> None:
+    if _on_redo is not None:
+        _on_redo()
+
+
+def update_undo_redo_buttons(can_undo: bool, can_redo: bool) -> None:
+    if dpg.does_item_exist("timeline_undo"):
+        dpg.configure_item("timeline_undo", enabled=can_undo)
+    if dpg.does_item_exist("timeline_redo"):
+        dpg.configure_item("timeline_redo", enabled=can_redo)
+
+
+def bind_copy(fn) -> None:
+    global _on_copy
+    _on_copy = fn
+
+
+def bind_cut(fn) -> None:
+    global _on_cut
+    _on_cut = fn
+
+
+def bind_paste(fn) -> None:
+    global _on_paste
+    _on_paste = fn
+
+
+def _copy_selected() -> None:
+    if _on_copy is not None:
+        _on_copy()
+
+
+def _cut_selected() -> None:
+    if _on_cut is not None:
+        _on_cut()
+
+
+def _paste_clip() -> None:
+    if _on_paste is not None:
+        _on_paste()
+
+
 def bind_clip_moved(fn) -> None:
     global _on_clip_moved
     _on_clip_moved = fn
@@ -276,7 +413,16 @@ def set_selected(clip_id: str | None, keyframe=None) -> None:
     global _selected_clip, _selected_keyframe
     _selected_clip = next((c for c in _all_clips() if c.id == clip_id), None) if clip_id else None
     _selected_keyframe = keyframe
+    for tag in ("timeline_delete_clip", "timeline_duplicate_clip",
+                "timeline_copy_clip", "timeline_cut_clip"):
+        if dpg.does_item_exist(tag):
+            dpg.configure_item(tag, enabled=_selected_clip is not None)
     _redraw()
+
+
+def delete_selected() -> None:
+    if _selected_clip is not None and _on_delete is not None:
+        _on_delete(_selected_clip)
 
 
 def set_playhead(seconds: float) -> None:
@@ -364,6 +510,8 @@ def tick() -> None:
                 if _on_key_select:
                     _on_key_select(_selected_clip.id, key.property, key.time)
             elif clip is not None:
+                if _on_drag_start is not None:
+                    _on_drag_start()
                 _drag_clip = clip
                 _drag_offset_px = local_x - clip.timeline_start * _px_per_sec
                 _drag_source_row = next(
@@ -505,6 +653,21 @@ def _zoom_in() -> None:
 def _zoom_out() -> None:
     if _zoom_idx > 0:
         _set_zoom_index(_zoom_idx - 1)
+
+
+def zoom_in() -> None:
+    _zoom_in()
+
+
+def zoom_out() -> None:
+    _zoom_out()
+
+
+def toggle_keyframes() -> None:
+    if dpg.does_item_exist("timeline_show_keyframes"):
+        new_val = not dpg.get_value("timeline_show_keyframes")
+        dpg.set_value("timeline_show_keyframes", new_val)
+        _toggle_keyframes(None, new_val)
 
 
 # ── Taille ────────────────────────────────────────────────────────────────────

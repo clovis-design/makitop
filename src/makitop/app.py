@@ -107,17 +107,40 @@ def main() -> None:
         def _on_playback_key(sender, key: int) -> None:
             if screens.home_shown() or export_dialog.blocks_editor():
                 return
-            if key == dpg.mvKey_Spacebar:
+            ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl)
+            if key == dpg.mvKey_Spacebar and not ctrl:
                 if playback_controller.is_playing():
                     playback_controller.pause()
                 else:
                     playback_controller.play()
-            elif key == dpg.mvKey_Left:
+            elif key == dpg.mvKey_Left and not ctrl:
                 playback_controller.seek(max(0.0, playback_controller.current_time() - _SEEK_STEP))
-            elif key == dpg.mvKey_Right:
+            elif key == dpg.mvKey_Right and not ctrl:
                 playback_controller.seek(playback_controller.current_time() + _SEEK_STEP)
-            elif key == dpg.mvKey_Home:
+            elif key == dpg.mvKey_Home and not ctrl:
                 playback_controller.seek(0.0)
+            elif key == dpg.mvKey_Delete and not ctrl:
+                timeline_panel.delete_selected()
+            elif ctrl and key == dpg.mvKey_K:
+                timeline_panel.toggle_keyframes()
+            elif ctrl and key == dpg.mvKey_B:
+                timeline_panel.split_at_playhead()
+            elif ctrl and key == dpg.mvKey_Z:
+                timeline_panel.undo()
+            elif ctrl and key == dpg.mvKey_Y:
+                timeline_panel.redo()
+            elif ctrl and key == dpg.mvKey_D:
+                timeline_panel.duplicate_selected()
+            elif ctrl and key == dpg.mvKey_C:
+                timeline_panel.copy_selected()
+            elif ctrl and key == dpg.mvKey_X:
+                timeline_panel.cut_selected()
+            elif ctrl and key == dpg.mvKey_V:
+                timeline_panel.paste_clip()
+            elif ctrl and key in (dpg.mvKey_Subtract, dpg.mvKey_Minus):
+                timeline_panel.zoom_out()
+            elif ctrl and key == dpg.mvKey_Add:
+                timeline_panel.zoom_in()
 
         with dpg.handler_registry():
             dpg.add_key_press_handler(callback=_on_playback_key)
