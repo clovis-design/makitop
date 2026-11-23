@@ -5,6 +5,7 @@ from makitop.ui.panels.timeline.panel import (
     add_clip,
     bind_clip_moved,
     bind_delete,
+    bind_duplicate,
     bind_split,
     bind_get_dragging_media,
     bind_keyframes,
@@ -44,6 +45,7 @@ def bind(editor, on_error=None) -> None:
     bind_seek(editor.seek)
     bind_delete(lambda clip: _bridge_delete(editor, clip))
     bind_split(editor.split_at_playhead)
+    bind_duplicate(editor.duplicate_selected)
     bind_clip_moved(lambda clip: _bridge_drag(editor, clip))
     bind_track_reordered(lambda: _bridge_reorder(editor))
     bind_select(lambda clip: editor.select(clip.id))
@@ -87,6 +89,11 @@ def refresh() -> None:
 def split_at_playhead() -> None:
     if _editor is not None:
         _editor.split_at_playhead()
+
+
+def duplicate_selected() -> None:
+    if _editor is not None:
+        _editor.duplicate_selected()
 
 
 def _bridge_delete(editor, clip) -> None:

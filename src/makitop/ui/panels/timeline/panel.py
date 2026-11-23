@@ -58,6 +58,7 @@ _playhead_sec: float = 0.0
 _on_seek = None            # Callable[[float], None]
 _on_delete = None          # Callable[[MediaClip], None]
 _on_split = None           # Callable[[], None]
+_on_duplicate = None       # Callable[[], None]
 _on_clip_moved = None      # Callable[[MediaClip], None]  — drag d'un clip
 _on_track_reordered = None # Callable[[], None]           — réordonnancement ▲/▼
 _on_select = None          # Callable[[MediaClip], None]
@@ -123,6 +124,10 @@ def create() -> None:
                            callback=_split_at_playhead)
             with dpg.tooltip("timeline_split_clip"):
                 dpg.add_text("Découper le clip à la position de lecture  [Ctrl+B]")
+            dpg.add_button(label="Dupliquer", tag="timeline_duplicate_clip", enabled=False,
+                           callback=_duplicate_selected)
+            with dpg.tooltip("timeline_duplicate_clip"):
+                dpg.add_text("Dupliquer le clip sélectionné  [Ctrl+D]")
             dpg.add_button(label="Supprimer", tag="timeline_delete_clip", enabled=False,
                            callback=delete_selected)
             with dpg.tooltip("timeline_delete_clip"):
@@ -249,6 +254,16 @@ def _split_at_playhead() -> None:
         _on_split()
 
 
+def bind_duplicate(fn) -> None:
+    global _on_duplicate
+    _on_duplicate = fn
+
+
+def _duplicate_selected() -> None:
+    if _on_duplicate is not None:
+        _on_duplicate()
+
+
 def bind_clip_moved(fn) -> None:
     global _on_clip_moved
     _on_clip_moved = fn
@@ -303,8 +318,9 @@ def set_selected(clip_id: str | None, keyframe=None) -> None:
     global _selected_clip, _selected_keyframe
     _selected_clip = next((c for c in _all_clips() if c.id == clip_id), None) if clip_id else None
     _selected_keyframe = keyframe
-    if dpg.does_item_exist("timeline_delete_clip"):
-        dpg.configure_item("timeline_delete_clip", enabled=_selected_clip is not None)
+    for tag in ("timeline_delete_clip", "timeline_duplicate_clip"):
+        if dpg.does_item_exist(tag):
+            dpg.configure_item(tag, enabled=_selected_clip is not None)
     _redraw()
 
 

@@ -381,6 +381,32 @@ class CompositionEditor:
                 self.selected_id = left.id
         self._edited(t)
 
+    def duplicate_selected(self):
+        clip = self.selected
+        if clip is None:
+            return
+        new_start = clip.timeline_end
+        new_end = new_start + clip.duration
+        same_track_free = not any(
+            c.track == clip.track
+            and c.timeline_start < new_end - 1e-6
+            and c.timeline_end > new_start + 1e-6
+            for c in self.project.timeline.clips
+        )
+        if same_track_free:
+            target_track = clip.track
+        else:
+            existing = self.project.timeline.clips
+            target_track = (max(c.track for c in existing) + 1) if existing else 0
+        new_id = uuid.uuid4().hex
+        if isinstance(clip, (MediaClip, ImageClip)):
+            dup = replace(clip, id=new_id, timeline_start=new_start, track=target_track)
+        else:
+            return
+        self.project.timeline.add_clip(dup)
+        self.selected_id = new_id
+        self._edited(dup.timeline_start)
+
     def set_timeline_zoom(self, pixels_per_second):
         pass
 

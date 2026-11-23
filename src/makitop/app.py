@@ -125,6 +125,8 @@ def main() -> None:
                 timeline_panel.toggle_keyframes()
             elif ctrl and key == dpg.mvKey_B:
                 timeline_panel.split_at_playhead()
+            elif ctrl and key == dpg.mvKey_D:
+                timeline_panel.duplicate_selected()
             elif ctrl and key in (dpg.mvKey_Subtract, dpg.mvKey_Minus):
                 timeline_panel.zoom_out()
             elif ctrl and key == dpg.mvKey_Add:
