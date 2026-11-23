@@ -1,6 +1,7 @@
 """Point d'entrée : crée le contexte Dear PyGui, assemble les composants et lance la boucle."""
 
 import logging
+import sys
 from concurrent.futures import Executor, ThreadPoolExecutor
 
 import dearpygui.dearpygui as dpg
@@ -12,12 +13,13 @@ from makitop.application.projects import ProjectSession
 from makitop.application.timeline_playback import TimelinePlaybackController
 from makitop.model.media import Media
 from makitop.storage.recent import RecentProjects, config_dir
-from makitop.ui import home, main_window, menu_bar, screens
+from makitop.ui import home, main_window, menu_bar, screens, shortcuts
+from makitop.ui.assets.style import LOGO
 from makitop.ui.dialogs import import_media, message, project_file
 from makitop.ui.dialogs.export_video import ExportDialog
 from makitop.ui.panels import effects as effects_panel
 from makitop.ui.panels import media as media_panel
-from makitop.ui.panels import preview, properties
+from makitop.ui.panels import preview, properties, text_presets
 from makitop.ui.panels import timeline as timeline_panel
 
 TITLE = f"Makitop {__version__}"
@@ -62,6 +64,12 @@ def main() -> None:
         except ValueError as exc:
             composition_error(str(exc))
 
+    def on_add_text(preset: str) -> None:
+        try:
+            editor.add_text(preset)
+        except ValueError as exc:
+            composition_error(str(exc))
+
     def refresh_project_media() -> None:
         preview.clear()
         timeline_panel.clear()
@@ -98,6 +106,7 @@ def main() -> None:
             on_media_selected=select_media,
             on_add_to_timeline=on_add_to_timeline,
             block_shortcuts=export_dialog.blocks_editor,
+            on_add_text=on_add_text,
         )
         home.create(on_new=project_file.new_project, on_open=project_file.open_dialog)
         import_media.create(on_files_selected=importer.import_files)
@@ -105,24 +114,54 @@ def main() -> None:
         _SEEK_STEP = 5.0
 
         def _on_playback_key(sender, key: int) -> None:
-            if screens.home_shown() or export_dialog.blocks_editor():
+            if (screens.home_shown() or export_dialog.blocks_editor()
+                    or shortcuts.text_input_active()
+                    or dpg.is_item_active(properties.TEXT_CONTENT)):
                 return
-            if key == dpg.mvKey_Spacebar:
+            ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl)
+            if key == dpg.mvKey_F and not shortcuts.ctrl_down():
+                main_window.toggle_fullscreen()
+            elif key == dpg.mvKey_Escape and main_window.is_fullscreen():
+                main_window.set_fullscreen(False)
+            elif key == dpg.mvKey_Spacebar and not ctrl:
                 if playback_controller.is_playing():
                     playback_controller.pause()
                 else:
                     playback_controller.play()
-            elif key == dpg.mvKey_Left:
+            elif key == dpg.mvKey_Left and not ctrl:
                 playback_controller.seek(max(0.0, playback_controller.current_time() - _SEEK_STEP))
-            elif key == dpg.mvKey_Right:
+            elif key == dpg.mvKey_Right and not ctrl:
                 playback_controller.seek(playback_controller.current_time() + _SEEK_STEP)
-            elif key == dpg.mvKey_Home:
+            elif key == dpg.mvKey_Home and not ctrl:
                 playback_controller.seek(0.0)
+            elif key == dpg.mvKey_Delete and not ctrl:
+                timeline_panel.delete_selected()
+            elif ctrl and key == dpg.mvKey_K:
+                timeline_panel.toggle_keyframes()
+            elif ctrl and key == dpg.mvKey_B:
+                timeline_panel.split_at_playhead()
+            elif ctrl and key == dpg.mvKey_Z:
+                timeline_panel.undo()
+            elif ctrl and key == dpg.mvKey_Y:
+                timeline_panel.redo()
+            elif ctrl and key == dpg.mvKey_D:
+                timeline_panel.duplicate_selected()
+            elif ctrl and key == dpg.mvKey_C:
+                timeline_panel.copy_selected()
+            elif ctrl and key == dpg.mvKey_X:
+                timeline_panel.cut_selected()
+            elif ctrl and key == dpg.mvKey_V:
+                timeline_panel.paste_clip()
+            elif ctrl and key in (dpg.mvKey_Subtract, dpg.mvKey_Minus):
+                timeline_panel.zoom_out()
+            elif ctrl and key == dpg.mvKey_Add:
+                timeline_panel.zoom_in()
 
         with dpg.handler_registry():
             dpg.add_key_press_handler(callback=_on_playback_key)
 
         preview.bind(editor, composition_error)
+        preview.bind_export(editor_only(export_dialog.open))
         properties.bind(editor, composition_error)
         timeline_panel.bind(editor, composition_error)
         effects_panel.bind(apply_effect)
@@ -151,6 +190,7 @@ def main() -> None:
         session.on_media_relinked(lambda _: refresh_project_media())
         session.on_state_changed(lambda: _refresh_title_and_projects(session))
 
+        icon = _window_icon()
         dpg.create_viewport(
             title=TITLE,
             width=DEFAULT_WIDTH,
@@ -158,6 +198,8 @@ def main() -> None:
             min_width=1500,
             min_height=600,
             disable_close=True,
+            small_icon=icon,
+            large_icon=icon,
         )
         dpg.set_exit_callback(project_file.quit_app)
         dpg.set_viewport_resize_callback(lambda: screens.resize())
@@ -188,6 +230,7 @@ def main() -> None:
             if not export_dialog.blocks_editor():
                 timeline_panel.tick()
                 media_panel.tick()
+                text_presets.tick()
             export_dialog.tick()
             dpg.render_dearpygui_frame()
 
@@ -197,6 +240,30 @@ def main() -> None:
         executor.shutdown(wait=True, cancel_futures=True)
         playback_controller.close()
         dpg.destroy_context()
+
+
+def _window_icon() -> str:
+    """Chemin de l'icône de la fenêtre ; "" garde l'icône par défaut.
+
+    Windows n'accepte qu'un .ico : logo.png est converti. Linux et macOS lisent le PNG
+    directement (et ne savent pas lire un .ico).
+    """
+    if not LOGO.exists():
+        log.warning("Logo introuvable : %s", LOGO)
+        return ""
+    if sys.platform != "win32":
+        return str(LOGO)
+    ico = config_dir() / "makitop.ico"
+    try:
+        from PIL import Image
+
+        ico.parent.mkdir(parents=True, exist_ok=True)
+        with Image.open(LOGO) as image:
+            image.save(ico, sizes=[(16, 16), (32, 32), (48, 48), (256, 256)])
+    except Exception:
+        log.exception("Icône de fenêtre impossible à créer")
+        return ""
+    return str(ico)
 
 
 def _show_project_media(session: ProjectSession, executor: Executor) -> None:

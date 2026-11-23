@@ -6,7 +6,7 @@ from pathlib import Path
 
 from makitop.model.composition import FORMATS
 from makitop.model.media import Media
-from makitop.model.timeline import Timeline
+from makitop.model.timeline import TextClip, Timeline
 
 DEFAULT_TIMELINE_ZOOM = 100  # pixels par seconde
 
@@ -57,7 +57,7 @@ class Project:
             if current.id == media.id:
                 self.media[index] = media
                 for clip in self.timeline.clips:
-                    if clip.media.id == media.id:
+                    if not isinstance(clip, TextClip) and clip.media.id == media.id:
                         clip.media = media
                 return
         raise KeyError(media.id)

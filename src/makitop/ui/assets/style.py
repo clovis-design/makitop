@@ -1,4 +1,6 @@
-"""Constantes de style (couleurs et polices) pour l'interface de Makitop."""
+"""Constantes de style (couleurs, polices et images) pour l'interface de Makitop."""
+
+from pathlib import Path
 
 # --- COULEURS ---
 COLORS = {
@@ -16,7 +18,16 @@ COLORS = {
     "accent_active": (85, 145, 205, 255),
     "danger": (140, 42, 52, 255),
     "danger_hover": (170, 55, 65, 255),
+    # Viewer (panneau Preview)
+    "viewer_bg": (6, 9, 22, 255),
+    "viewer_frame": (70, 78, 110, 255),
+    "timecode": (235, 236, 242, 255),
 }
 
 # --- POLICES ---
 FONT_INTER = "src/makitop/ui/assets/fonts/Inter-VariableFont_slnt,wght.ttf"
+
+# --- IMAGES ---
+IMAGES_DIR = Path(__file__).resolve().parent / "images"
+LOGO = IMAGES_DIR / "logo.png"
+LOGO_TITLE = IMAGES_DIR / "logo+titre.png"

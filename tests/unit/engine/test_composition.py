@@ -91,6 +91,38 @@ def test_crop_and_off_canvas_clipping(tmp_path):
         renderer.close()
 
 
+def test_horizontal_mirror_and_clockwise_rotation_keep_background_visible():
+    source = np.zeros((40, 80, 3), dtype=np.uint8)
+    source[:, :40] = (255, 0, 0)
+    source[:, 40:] = (0, 255, 0)
+    t = Transform(x=0.25, y=0.25, width=0.5, height=0.5)
+    canvas = np.full((80, 120, 3), 20, dtype=np.uint8)
+    TimelineRenderer._composite(canvas, source, replace(t, flip_horizontal=True))
+    np.testing.assert_array_equal(canvas[40, 45], [0, 255, 0])
+    np.testing.assert_array_equal(canvas[40, 75], [255, 0, 0])
+
+    canvas.fill(20)
+    TimelineRenderer._composite(canvas, source, replace(t, rotation=90))
+    np.testing.assert_array_equal(canvas[24, 60], [255, 0, 0])
+    np.testing.assert_array_equal(canvas[55, 60], [0, 255, 0])
+    np.testing.assert_array_equal(canvas[40, 35], [20, 20, 20])
+
+    canvas.fill(20)
+    TimelineRenderer._composite(canvas, source, replace(t, rotation=90, flip_horizontal=True))
+    np.testing.assert_array_equal(canvas[24, 60], [0, 255, 0])
+    np.testing.assert_array_equal(canvas[55, 60], [255, 0, 0])
+
+
+@pytest.mark.parametrize("horizontal", [False, True])
+def test_vertical_mirror_and_combination(horizontal):
+    source = np.arange(4 * 6 * 3, dtype=np.uint8).reshape(4, 6, 3)
+    canvas = np.zeros_like(source)
+    transform = Transform(flip_horizontal=horizontal, flip_vertical=True)
+    TimelineRenderer._composite(canvas, source, transform)
+    expected = source[::-1, ::-1] if horizontal else source[::-1]
+    np.testing.assert_array_equal(canvas, expected)
+
+
 def test_photo_orientation_matches_selection_geometry(tmp_path):
     path = tmp_path / "portrait.jpg"
     image = Image.new("RGB", (80, 40), (255, 0, 0))

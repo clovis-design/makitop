@@ -6,6 +6,7 @@ from makitop.ui import home, main_window
 
 
 def show_home() -> None:
+    main_window.set_fullscreen(False)
     dpg.hide_item(main_window.ROOT)
     dpg.show_item(home.TAG)
     dpg.set_primary_window(home.TAG, True)

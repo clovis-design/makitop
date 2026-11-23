@@ -1,10 +1,10 @@
 """Lecture et écriture des fichiers de projet `.makitop` (JSON).
 
-Format (version 5 ; lecture des anciens projets versions 1 à 4 conservée) :
+Format (version 11 ; lecture des anciens projets versions 1 à 10 conservée) :
 
     {
       "format": "makitop",
-      "version": 5,
+      "version": 11,
       "name": "Mon film",
       "canvas_format": "16:9",
       "fps": 30,
@@ -16,7 +16,8 @@ Format (version 5 ; lecture des anciens projets versions 1 à 4 conservée) :
           "timeline_start": 0.0,
           "media_id": "...",
           "source_start": 0.0,
-          "source_end": 10.5,
+           "source_end": 10.5,
+           "speed": 1.0,
           "effects": [{"kind": "bw", "amount": 1.0}]
         }
       ],
@@ -41,11 +42,12 @@ from makitop.model.effects import Effect
 from makitop.model.keyframes import Keyframe
 from makitop.model.media import Media, MediaKind
 from makitop.model.project import DEFAULT_TIMELINE_ZOOM, Project, ViewState
-from makitop.model.timeline import BaseClip, ImageClip, MediaClip, Timeline
+from makitop.model.text import TextStyle
+from makitop.model.timeline import BaseClip, ImageClip, MediaClip, TextClip, Timeline
 
 EXTENSION = ".makitop"
 FORMAT = "makitop"
-VERSION = 5
+VERSION = 11
 
 
 class ProjectFileError(Exception):
@@ -105,6 +107,13 @@ def load(path: Path) -> Project:
             raw = [dict(c, clip_type="media", source_start=c["source_in"],
                         source_end=c["source_out"]) for c in raw.get("clips", [])]
         clips = [_clip_from_dict(c, media_index) for c in raw]
+        if version < 7 and any(isinstance(clip, TextClip) for clip in clips):
+            # En v6 les textes avaient leur propre numérotation et étaient toujours devant.
+            tracks = sorted({(isinstance(clip, TextClip), clip.track) for clip in clips})
+            order = {track: min(i, 99) for i, track in enumerate(tracks)}
+            clips.sort(key=lambda clip: (isinstance(clip, TextClip), clip.track))
+            for clip in clips:
+                clip.track = order[isinstance(clip, TextClip), clip.track]
         return Project(
             name=str(data.get("name") or path.stem), media=media,
             timeline=Timeline(clips=clips, fps=fps),
@@ -145,6 +154,12 @@ def _clip_to_dict(clip: BaseClip) -> dict:
         "effects": [{"kind": e.kind, "amount": e.amount} for e in clip.effects],
         "keyframes": [asdict(k) for k in clip.keyframes],
     }
+    if isinstance(clip, TextClip):
+        return {
+            "clip_type": "text", "id": clip.id, "timeline_start": clip.timeline_start,
+            "display_duration": clip.display_duration, "content": clip.content,
+            "style": asdict(clip.style), **common,
+        }
     if isinstance(clip, MediaClip):
         return {
             "clip_type": "media",
@@ -153,6 +168,7 @@ def _clip_to_dict(clip: BaseClip) -> dict:
             "media_id": clip.media.id,
             "source_start": clip.source_start,
             "source_end": clip.source_end,
+            "speed": clip.speed,
             **common,
         }
     if isinstance(clip, ImageClip):
@@ -169,7 +185,6 @@ def _clip_to_dict(clip: BaseClip) -> dict:
 
 def _clip_from_dict(data: dict, media_index: dict[str, Media]) -> BaseClip:
     clip_type = data["clip_type"]
-    media = media_index[data["media_id"]]
     common = {
         "track": data.get("track", 0),
         "transform": Transform(**data.get("transform", {})),
@@ -178,19 +193,28 @@ def _clip_from_dict(data: dict, media_index: dict[str, Media]) -> BaseClip:
                          for e in data.get("effects", [])),
         "keyframes": tuple(Keyframe(**k) for k in data.get("keyframes", [])),
     }
+    if clip_type == "text":
+        style = dict(data["style"])
+        style["color"] = tuple(style["color"])
+        return TextClip(
+            timeline_start=float(data["timeline_start"]),
+            display_duration=float(data["display_duration"]),
+            content=data["content"], style=TextStyle(**style), id=data["id"], **common,
+        )
     if clip_type == "media":
         return MediaClip(
             timeline_start=float(data["timeline_start"]),
-            media=media,
+            media=media_index[data["media_id"]],
             source_start=float(data["source_start"]),
             source_end=float(data["source_end"]),
+            speed=data.get("speed", 1.0),
             id=data["id"],
             **common,
         )
     if clip_type == "image":
         return ImageClip(
             timeline_start=float(data["timeline_start"]),
-            media=media,
+            media=media_index[data["media_id"]],
             display_duration=float(data["display_duration"]),
             id=data["id"],
             **common,

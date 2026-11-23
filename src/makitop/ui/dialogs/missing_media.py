@@ -6,6 +6,7 @@ from pathlib import Path
 import dearpygui.dearpygui as dpg
 
 from makitop.application.projects import ProjectSession
+from makitop.ui.dialogs import center_window
 from makitop.media.probe import MediaProbeError
 from makitop.model.media import Media
 from makitop.ui.dialogs import message
@@ -15,6 +16,7 @@ TAG = "missing_media_window"
 LIST_TAG = "missing_media_list"
 FILE_DIALOG_TAG = "missing_media_file_dialog"
 WIDTH = 560
+HEIGHT = 220
 
 _session: ProjectSession | None = None
 _target: Media | None = None
@@ -63,9 +65,7 @@ def show_if_missing() -> None:
 
 def show() -> None:
     _refresh()
-    if dpg.is_viewport_ok():  # pas de viewport dans les tests
-        x = max((dpg.get_viewport_client_width() - WIDTH) // 2, 0)
-        dpg.set_item_pos(TAG, [x, dpg.get_viewport_client_height() // 4])
+    center_window(TAG, WIDTH, HEIGHT)
     dpg.show_item(TAG)
     dpg.focus_item(TAG)
 

@@ -6,6 +6,7 @@ import pytest
 
 from makitop.export.mp4 import ExportCancelled, ExportSettings, export_mp4
 from makitop.media.probe import probe
+from makitop.model.composition import Transform
 from makitop.model.project import Project
 from makitop.model.timeline import ImageClip, MediaClip, Timeline
 
@@ -51,6 +52,39 @@ def test_export_fluide_resolution(tmp_path, image_file):
     path = export_mp4(project, tmp_path / "fluide.mp4", settings=ExportSettings(height=360))
     with av.open(str(path)) as container:
         assert (container.streams.video[0].width, container.streams.video[0].height) == (640, 360)
+
+
+def test_export_uses_clip_speed_and_keeps_source_trim(tmp_path, video_file):
+    media = probe(video_file)
+    clip = MediaClip(0, media, 0.2, 0.8, speed=2.0)
+    project = Project(timeline=Timeline(fps=10, clips=[clip]))
+    path = export_mp4(project, tmp_path / "accelere.mp4", settings=ExportSettings(height=360))
+    assert project.timeline.duration == pytest.approx(0.3)
+    with av.open(str(path)) as container:
+        values = [frame.to_ndarray(format="rgb24")[180, 320].mean()
+                  for frame in container.decode(video=0)]
+    assert values == pytest.approx([40, 80, 120], abs=5)
+
+
+def test_export_rotates_and_mirrors_a_video_clip(tmp_path):
+    source = tmp_path / "split.mp4"
+    pixels = np.zeros((32, 64, 3), dtype=np.uint8)
+    pixels[:, :32] = (255, 0, 0)
+    pixels[:, 32:] = (0, 255, 0)
+    with av.open(str(source), "w") as container:
+        stream = container.add_stream("mpeg4", rate=10)
+        stream.width, stream.height, stream.pix_fmt = 64, 32, "yuv420p"
+        container.mux(stream.encode(av.VideoFrame.from_ndarray(pixels, format="rgb24")))
+        container.mux(stream.encode())
+    transform = Transform(x=0.25, y=0.25, width=0.5, height=0.5,
+                          rotation=90, flip_horizontal=True)
+    clip = MediaClip(0, probe(source), 0, 0.1, transform=transform)
+    project = Project(timeline=Timeline(fps=10, clips=[clip]))
+    path = export_mp4(project, tmp_path / "orientation.mp4", settings=ExportSettings(height=360))
+    with av.open(str(path)) as container:
+        frame = next(container.decode(video=0)).to_ndarray(format="rgb24")
+    assert frame[100, 320, 1] > 230 and frame[100, 320, 0] < 10
+    assert frame[260, 320, 0] > 230 and frame[260, 320, 1] < 10
 
 
 def test_cancel_preserves_destination(tmp_path, image_file):

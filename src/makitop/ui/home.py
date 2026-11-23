@@ -9,11 +9,13 @@ from pathlib import Path
 import dearpygui.dearpygui as dpg
 
 from makitop.storage.recent import RecentProject
-from makitop.ui.assets.style import COLORS, FONT_INTER
+from makitop.ui.assets.style import COLORS, FONT_INTER, LOGO_TITLE
 
 TAG = "home_window"
 CONTENT_TAG = "home_content"
 TITLE_TAG = "home_title"
+LOGO_TAG = "home_logo"
+LOGO_TEXTURE = "home_logo_texture"
 NEW_BUTTON = "home_new_project"
 OPEN_BUTTON = "home_open_project"
 LIST_TAG = "home_project_list"
@@ -21,6 +23,7 @@ LIST_TAG = "home_project_list"
 CONTENT_WIDTH = 820
 _MUTED = (150, 155, 175)
 _TITLE_FONT_SIZE = 36
+_LOGO_HEIGHT = 80
 
 
 def create(on_new: Callable[[], None], on_open: Callable[[], None]) -> None:
@@ -35,7 +38,7 @@ def create(on_new: Callable[[], None], on_open: Callable[[], None]) -> None:
     ):
         dpg.add_spacer(height=30)
         with dpg.child_window(tag=CONTENT_TAG, width=CONTENT_WIDTH, border=False):
-            dpg.add_text("Makitop", tag=TITLE_TAG)
+            _add_logo()
             dpg.add_text("Logiciel de montage vidéo", color=_MUTED)
             dpg.add_spacer(height=16)
             with dpg.group(horizontal=True):
@@ -114,6 +117,23 @@ def format_last_used(when: datetime | None, now: datetime) -> str:
     return f"{when:%d/%m/%Y}"
 
 
+def _add_logo() -> None:
+    """Affiche logo+titre.png ; à défaut (fichier absent ou illisible), le texte « Makitop »."""
+    image = dpg.load_image(str(LOGO_TITLE)) if LOGO_TITLE.exists() else None
+    if image is None:
+        dpg.add_text("Makitop", tag=TITLE_TAG)
+        return
+    width, height, _channels, data = image
+    if not dpg.does_item_exist(LOGO_TEXTURE):
+        with dpg.texture_registry():
+            dpg.add_static_texture(width=width, height=height, default_value=data,
+                                   tag=LOGO_TEXTURE)
+    # Hauteur fixe, largeur proportionnelle, sans dépasser la colonne de contenu.
+    scale = min(_LOGO_HEIGHT / height, CONTENT_WIDTH / width)
+    dpg.add_image(LOGO_TEXTURE, tag=LOGO_TAG,
+                  width=round(width * scale), height=round(height * scale))
+
+
 def _apply_style() -> None:
     with dpg.theme() as theme, dpg.theme_component(dpg.mvAll):
         dpg.add_theme_color(dpg.mvThemeCol_WindowBg, COLORS["bg_panel"])
@@ -122,7 +142,7 @@ def _apply_style() -> None:
         dpg.add_theme_style(dpg.mvStyleVar_WindowBorderSize, 0)
     dpg.bind_item_theme(TAG, theme)
 
-    if os.path.exists(FONT_INTER):
+    if dpg.does_item_exist(TITLE_TAG) and os.path.exists(FONT_INTER):
         with dpg.font_registry():
             title_font = dpg.add_font(FONT_INTER, _TITLE_FONT_SIZE)
         dpg.bind_item_font(TITLE_TAG, title_font)
