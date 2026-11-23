@@ -14,7 +14,6 @@ from makitop.model.composition import (
     fitted_bounds,
     with_center_offset,
     with_crop,
-    with_zoom,
 )
 from makitop.model.keyframes import INTERPOLATIONS, PROPERTIES
 from makitop.model.media import MediaKind
@@ -151,37 +150,31 @@ def _effects_tab() -> None:
 
 def _keyframes_tab() -> None:
     dpg.add_text("", tag="keyframe_cursor", wrap=0, color=COLORS["label_muted"])
-    dpg.add_spacer(height=4)
-    with _section("kf_props", "Propriétés animées"):
-        with _rows():
-            for name in ("x", "y", "width", "height"):
-                with _row(PROPERTIES[name][0]):
-                    with dpg.group(horizontal=True):
-                        dpg.add_input_float(tag=f"clip_{name}", width=-40, step=0,
-                                            format="%.1f %%", on_enter=True, user_data=name,
-                                            callback=lambda s, v, p: _action(
-                                                "set_animated_value", p, v / 100))
-                        dpg.add_button(label="+", tag=f"keyframe_add_{name}", width=-1,
-                                       user_data=name,
-                                       callback=lambda s, v, p: _action("toggle_keyframe", p))
-            with _row(PROPERTIES["volume"][0]):
-                with dpg.group(horizontal=True):
-                    dpg.add_input_float(tag="clip_volume_kf", width=-40, step=0,
-                                        format="%.1f %%", on_enter=True, user_data="volume",
-                                        callback=lambda s, v, p: _action(
-                                            "set_animated_value", p, v / 100))
-                    dpg.add_button(label="+", tag="keyframe_add_volume", width=-1,
-                                   user_data="volume",
-                                   callback=lambda s, v, p: _action("toggle_keyframe", p))
+    dpg.add_text("Placez la tête de lecture, puis cliquez sur ◇",
+                 color=COLORS["label_muted"])
+    dpg.add_text("pour poser une clé sur la propriété souhaitée.",
+                 color=COLORS["label_muted"])
+    dpg.add_spacer(height=3)
+    with _section("kf_props", "Propriétés animées"), _rows():
+        for name in ("x", "y", "zoom", "width", "height"):
+            with _row(PROPERTIES[name][0], tag=f"keyframe_row_{name}"):
+                _key_button(name)
+        with _row(PROPERTIES["volume"][0], tag="keyframe_row_volume"):
+            _key_button("volume")
     with _section("kf_edit", "Clé sélectionnée"):
         with dpg.group(horizontal=True):
             dpg.add_button(label="◀ Préc.", callback=lambda: _action("adjacent_keyframe", -1))
             dpg.add_button(label="Suiv. ▶", callback=lambda: _action("adjacent_keyframe", 1))
         dpg.add_spacer(height=4)
-        dpg.add_text("Aucune clé sélectionnée", tag="keyframe_selected",
+        dpg.add_text("Sélectionnez une clé sur la timeline.", tag="keyframe_selected",
                      wrap=0, color=COLORS["label_muted"])
         with dpg.group(tag="keyframe_edit", show=False):
             with _rows():
+                with _row("Valeur"):
+                    dpg.add_input_float(tag="keyframe_value", width=-1, step=0, format="%.1f %%",
+                                        on_enter=True,
+                                        callback=lambda s, v: _action(
+                                            "set_selected_keyframe_value", v / 100))
                 with _row("Temps (s)"):
                     dpg.add_input_float(tag="keyframe_time", width=-1, step=0, format="%.4f",
                                         on_enter=True, callback=_key_time_changed)
@@ -315,6 +308,9 @@ def refresh():
         dpg.set_value("clip_in", clip.source_start)
         dpg.set_value("clip_out", clip.source_end)
     dpg.configure_item("clip_geometry", show=clip.media.kind != MediaKind.AUDIO)
+    for name in ("x", "y", "zoom", "width", "height"):
+        dpg.configure_item(f"keyframe_row_{name}", show=clip.media.kind != MediaKind.AUDIO)
+    dpg.configure_item("keyframe_row_volume", show=clip.media.has_audio and not is_image)
     _refresh_geometry(clip.transform)
     has_audio = clip.media.has_audio and not is_image
     dpg.configure_item(TAB_AUDIO, show=has_audio)
@@ -330,10 +326,11 @@ def refresh():
         dpg.configure_item("keyframe_edit", show=selected is not None)
         if dpg.does_alias_exist("keyframe_selected"):
             dpg.set_value("keyframe_selected", (
-                f"{PROPERTIES[selected.property][0]} à {selected.time:.4f} s"
-                if selected else "Aucune clé sélectionnée"
+                f"{PROPERTIES[selected.property][0]} · {selected.time:.3f} s"
+                if selected else "Sélectionnez une clé sur la timeline."
             ))
         if selected:
+            dpg.set_value("keyframe_value", selected.value * 100)
             if dpg.does_alias_exist("keyframe_time"):
                 dpg.set_value("keyframe_time", selected.time)
             if dpg.does_alias_exist("keyframe_interpolation"):
@@ -342,8 +339,10 @@ def refresh():
 
 
 def _key_button(name):
-    dpg.add_button(label="+ clé", tag=f"keyframe_add_{name}", user_data=name,
+    dpg.add_button(label="◇", tag=f"keyframe_add_{name}", width=30, user_data=name,
                    callback=lambda s, v, p: _action("toggle_keyframe", p))
+    with dpg.tooltip(f"keyframe_add_{name}"):
+        dpg.add_text("", tag=f"keyframe_hint_{name}")
 
 
 def _key_time_changed(sender, value):
@@ -352,27 +351,34 @@ def _key_time_changed(sender, value):
 
 
 def tick(position):
-    """Actualise les valeurs animées à la lecture/au seek, sans reconstruire les contrôles."""
+    """Actualise les indicateurs de clés et la position sans reconstruire les contrôles."""
     clip = _editor.selected if _editor and not _editor.source_mode else None
     if clip is None:
         return
     local_time = max(0, min(clip.duration, position - clip.timeline_start))
-    transform = clip.transform_at(local_time)
     key_time = _editor.keyframe_time()
     for name in PROPERTIES:
-        value = clip.volume_at(local_time) if name == "volume" else getattr(transform, name)
-        for tag in (f"clip_{name}", f"clip_{name}_kf"):
-            if dpg.does_alias_exist(tag):
-                if not dpg.is_item_active(tag) and dpg.get_value(tag) != value * 100:
-                    dpg.set_value(tag, value * 100)
         key_tag = f"keyframe_add_{name}"
         if dpg.does_alias_exist(key_tag):
-            exists = any(k.property == name and abs(k.time - key_time) < 1e-9 for k in clip.keyframes)
-            label = "- clé" if exists else "+ clé"
+            exists = any(k.property == name and abs(k.time - key_time) < 1e-9
+                         for k in clip.keyframes)
+            label = "◆" if exists else "◇"
             if dpg.get_item_label(key_tag) != label:
                 dpg.configure_item(key_tag, label=label)
+            hint = ("Retirer" if exists else "Ajouter") + (
+                f" une clé « {PROPERTIES[name][0]} » à {key_time:.3f} s"
+            )
+            if dpg.get_value(f"keyframe_hint_{name}") != hint:
+                dpg.set_value(f"keyframe_hint_{name}", hint)
     if dpg.does_alias_exist("keyframe_cursor"):
-        dpg.set_value("keyframe_cursor", f"Temps dans le clip : {local_time:.3f} s")
+        count = len(clip.keyframes)
+        cursor = f"Clip : {local_time:.3f} s  ·  {count} clé{'s' if count != 1 else ''}"
+        if dpg.get_value("keyframe_cursor") != cursor:
+            dpg.set_value("keyframe_cursor", cursor)
+    if not dpg.is_item_active("clip_zoom"):
+        zoom = clip.transform_at(local_time).width * 100
+        if dpg.get_value("clip_zoom") != zoom:
+            dpg.set_value("clip_zoom", zoom)
 
 
 def _subtitle(clip) -> str:
@@ -457,9 +463,8 @@ def _effect_changed(sender, value, user_data):
 
 
 def _set_zoom(percent):
-    clip = _selected()
-    if clip is not None:
-        _transform(lambda: with_zoom(clip.transform, percent / 100))
+    if _selected() is not None:
+        _action("set_animated_value", "zoom", percent / 100)
 
 
 def _set_position(x=None, y=None):

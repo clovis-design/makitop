@@ -98,3 +98,23 @@ def test_keyframe_project_round_trip_and_legacy(tmp_path, image_file):
     path.write_text(json.dumps(data))
     legacy = load(path)
     assert legacy.timeline.clips[0] == replace(project.timeline.clips[0], keyframes=())
+
+
+def test_zoom_keyframes_render_and_survive_save(tmp_path, image_file):
+    media = probe(image_file)
+    clip = ImageClip(0, media, 1, keyframes=(
+        Keyframe("zoom", 0, 0.5), Keyframe("zoom", 0.5, 1),
+    ))
+    project = Project(media=[media], timeline=Timeline(clips=[clip], fps=10))
+    path = tmp_path / "zoom.makitop"
+    save(project, path)
+    restored = load(path)
+    assert restored.timeline.clips[0].keyframes == clip.keyframes
+    renderer = TimelineRenderer(640, 360)
+    try:
+        start = renderer.render(restored, 0)
+        end = renderer.render(restored, 5)
+        assert start[180, 100].max() < 5
+        assert end[180, 100, 0] > 240
+    finally:
+        renderer.close()

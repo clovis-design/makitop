@@ -7,6 +7,7 @@ from itertools import pairwise
 PROPERTIES = {
     "x": ("Position X", -8, 8),
     "y": ("Position Y", -8, 8),
+    "zoom": ("Zoom", 0, 8),
     "width": ("Largeur", 0, 8),
     "height": ("Hauteur", 0, 8),
     "volume": ("Volume", 0, 2),
@@ -29,7 +30,7 @@ class Keyframe:
             raise ValueError("Temps d'image clé invalide.")
         _, low, high = PROPERTIES[self.property]
         if (not math.isfinite(self.value) or not low <= self.value <= high
-                or (self.property in ("width", "height") and self.value <= 0)):
+                or (self.property in ("zoom", "width", "height") and self.value <= 0)):
             raise ValueError("Valeur d'image clé invalide.")
         if self.interpolation not in INTERPOLATIONS.values():
             raise ValueError("Interpolation inconnue.")
