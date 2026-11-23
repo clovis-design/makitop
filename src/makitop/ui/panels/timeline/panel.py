@@ -83,7 +83,9 @@ _on_key_move = None
 _KEY_ROW_H = 22
 _KEY_COLOR = (105, 210, 245, 255)
 _get_dragging_media = None   # Callable[[], Media | None]
-_on_media_drop = None        # Callable[[Media, float], None]
+_on_media_drop = None        # Callable[[Media, float, int], None]
+_get_dragging_text = None    # Callable[[], str | None]
+_on_text_drop = None         # Callable[[str, float], None]
 
 
 def create() -> None:
@@ -402,6 +404,16 @@ def bind_media_drop(fn) -> None:
     _on_media_drop = fn
 
 
+def bind_get_dragging_text(fn) -> None:
+    global _get_dragging_text
+    _get_dragging_text = fn
+
+
+def bind_text_drop(fn) -> None:
+    global _on_text_drop
+    _on_text_drop = fn
+
+
 def bind_keyframes(on_select, on_move):
     global _on_key_select, _on_key_move
     _on_key_select, _on_key_move = on_select, on_move
@@ -516,7 +528,10 @@ def tick() -> None:
         local_y = my - dl_min[1]
 
         # Début d'un drag — bloqué si un média externe est en cours de drop
-        _external_drag = _get_dragging_media is not None and _get_dragging_media() is not None
+        _external_drag = (
+            (_get_dragging_media is not None and _get_dragging_media() is not None)
+            or (_get_dragging_text is not None and _get_dragging_text() is not None)
+        )
         if hovered and btn_down and not active and not _external_drag:
             key = _keyframe_at(local_x, local_y)
             clip = _clip_at(local_x, local_y)
@@ -588,6 +603,13 @@ def tick() -> None:
                 _draw_external_media_ghost(ext_media, ext_start, ext_row)
                 if not btn_down and _on_media_drop is not None:
                     _on_media_drop(ext_media, ext_start, ext_row)
+
+        # Drop d'un préréglage de texte dans la timeline
+        ext_text = _get_dragging_text() if _get_dragging_text is not None else None
+        if ext_text is not None and hovered:
+            ext_start = max(0.0, local_x / _px_per_sec)
+            if not btn_down and _on_text_drop is not None:
+                _on_text_drop(ext_text, ext_start)
 
         # Curseur hover
         dpg.delete_item(_CURSOR_LAYER, children_only=True)

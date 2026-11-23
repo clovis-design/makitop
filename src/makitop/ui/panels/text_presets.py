@@ -13,6 +13,37 @@ from makitop.ui.panels import catalog_grid
 from makitop.ui.panels.catalog_grid import THUMB_H, THUMB_W
 
 REGISTRY = "text_preset_texture_registry"
+
+_drag_candidate: str | None = None
+_drag_start_pos: tuple | None = None
+_drag_active: bool = False
+_dragging_text: str | None = None
+
+
+def get_dragging_text() -> str | None:
+    return _dragging_text if _drag_active else None
+
+
+def tick() -> None:
+    global _drag_candidate, _drag_start_pos, _drag_active, _dragging_text
+    btn = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
+    if not _drag_candidate:
+        for kind in PRESETS:
+            tag = button_tag(kind)
+            if dpg.does_item_exist(tag) and dpg.is_item_active(tag):
+                _drag_candidate = kind
+                _drag_start_pos = dpg.get_mouse_pos(local=False)
+                break
+    if btn and _drag_candidate and not _drag_active and _drag_start_pos:
+        pos = dpg.get_mouse_pos(local=False)
+        if abs(pos[0] - _drag_start_pos[0]) > 5 or abs(pos[1] - _drag_start_pos[1]) > 5:
+            _drag_active = True
+            _dragging_text = _drag_candidate
+    if not btn:
+        _drag_candidate = None
+        _drag_start_pos = None
+        _drag_active = False
+        _dragging_text = None
 GROUPS = {
     "Titres": ("title", "heading", "subtitle"),
     "Corps de texte": ("paragraph", "quote", "caption"),

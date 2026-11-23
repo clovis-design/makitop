@@ -15,8 +15,10 @@ from makitop.ui.panels.timeline.panel import (
     bind_paste,
     bind_split,
     bind_get_dragging_media,
+    bind_get_dragging_text,
     bind_keyframes,
     bind_media_drop,
+    bind_text_drop,
     bind_seek,
     bind_select,
     bind_track_reordered,
@@ -65,6 +67,9 @@ def bind(editor, on_error=None) -> None:
     bind_zoom(editor.set_timeline_zoom)
     bind_get_dragging_media(media_panel.get_dragging_media)
     bind_media_drop(lambda media, start, row: _bridge_media_drop(editor, media, start, row))
+    from makitop.ui.panels import text_presets
+    bind_get_dragging_text(text_presets.get_dragging_text)
+    bind_text_drop(lambda kind, start: _bridge_text_drop(editor, kind, start))
 
     def key_action(method, *args):
         try:
@@ -158,6 +163,13 @@ def _bridge_media_drop(editor, media, start: float, target_row: int) -> None:
         if clamped > source_row:
             move_track_to(source_row, clamped)
             _bridge_reorder(editor)
+    except ValueError:
+        pass
+
+
+def _bridge_text_drop(editor, kind: str, start: float) -> None:
+    try:
+        editor.add_text(kind, start=start)
     except ValueError:
         pass
 

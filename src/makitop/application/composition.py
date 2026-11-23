@@ -72,9 +72,10 @@ class CompositionEditor:
         self._edited(start)
         return clip
 
-    def add_text(self, preset: str) -> TextClip:
+    def add_text(self, preset: str, start: float | None = None) -> TextClip:
         template = PRESETS[preset]
-        start = self.project.view.playhead if self.source_mode else self.playback.current_time()
+        if start is None:
+            start = self.project.view.playhead if self.source_mode else self.playback.current_time()
         duration = 5.0
         clips = self.project.timeline.clips
         front_media = max((c.track for c in clips if not isinstance(c, TextClip)), default=-1)

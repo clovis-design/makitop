@@ -13,11 +13,12 @@ from makitop.application.timeline_playback import TimelinePlaybackController
 from makitop.model.media import Media
 from makitop.storage.recent import RecentProjects, config_dir
 from makitop.ui import home, main_window, menu_bar, screens, shortcuts
+from makitop.ui.assets.style import LOGO
 from makitop.ui.dialogs import import_media, message, project_file
 from makitop.ui.dialogs.export_video import ExportDialog
 from makitop.ui.panels import effects as effects_panel
 from makitop.ui.panels import media as media_panel
-from makitop.ui.panels import preview, properties
+from makitop.ui.panels import preview, properties, text_presets
 from makitop.ui.panels import timeline as timeline_panel
 
 TITLE = f"Makitop {__version__}"
@@ -188,6 +189,7 @@ def main() -> None:
         session.on_media_relinked(lambda _: refresh_project_media())
         session.on_state_changed(lambda: _refresh_title_and_projects(session))
 
+        icon = _window_icon()
         dpg.create_viewport(
             title=TITLE,
             width=DEFAULT_WIDTH,
@@ -195,6 +197,8 @@ def main() -> None:
             min_width=1500,
             min_height=600,
             disable_close=True,
+            small_icon=icon,
+            large_icon=icon,
         )
         dpg.set_exit_callback(project_file.quit_app)
         dpg.set_viewport_resize_callback(lambda: screens.resize())
@@ -225,6 +229,7 @@ def main() -> None:
             if not export_dialog.blocks_editor():
                 timeline_panel.tick()
                 media_panel.tick()
+                text_presets.tick()
             export_dialog.tick()
             dpg.render_dearpygui_frame()
 
@@ -234,6 +239,24 @@ def main() -> None:
         executor.shutdown(wait=True, cancel_futures=True)
         playback_controller.close()
         dpg.destroy_context()
+
+
+def _window_icon() -> str:
+    """Convertit logo.png en .ico (format attendu par Windows) ; "" garde l'icône par défaut."""
+    if not LOGO.exists():
+        log.warning("Logo introuvable : %s", LOGO)
+        return ""
+    ico = config_dir() / "makitop.ico"
+    try:
+        from PIL import Image
+
+        ico.parent.mkdir(parents=True, exist_ok=True)
+        with Image.open(LOGO) as image:
+            image.save(ico, sizes=[(16, 16), (32, 32), (48, 48), (256, 256)])
+    except Exception:
+        log.exception("Icône de fenêtre impossible à créer")
+        return ""
+    return str(ico)
 
 
 def _show_project_media(session: ProjectSession, executor: Executor) -> None:
