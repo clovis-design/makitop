@@ -6,7 +6,7 @@ from math import ceil
 
 from makitop.model.composition import FORMATS, Transform, with_zoom
 from makitop.model.effects import CATALOG, Effect
-from makitop.model.keyframes import PROPERTIES, Keyframe, curve, upsert
+from makitop.model.keyframes import PROPERTIES, Keyframe, curve, upsert, value_at
 from makitop.model.media import MediaKind
 from makitop.model.project import Project
 from makitop.model.timeline import ImageClip, MediaClip, Timeline
@@ -340,6 +340,14 @@ class CompositionEditor:
             current.track = min(track, 99)
         self._edited()
 
+    @staticmethod
+    def _kf_default(clip, prop):
+        if prop == "volume":
+            return clip.volume
+        if prop == "zoom":
+            return clip.transform.width
+        return getattr(clip.transform, prop, 1.0)
+
     def split_at_playhead(self):
         t = self.playback.current_time()
         timeline = self.project.timeline
@@ -356,6 +364,21 @@ class CompositionEditor:
                 replace(k, time=k.time - local_t)
                 for k in clip.keyframes if k.time >= local_t
             )
+            # Keyframe synthétique au point de coupe pour préserver la valeur interpolée
+            for prop in {k.property for k in clip.keyframes}:
+                default = self._kf_default(clip, prop)
+                val = value_at(clip.keyframes, prop, local_t, default)
+                # Interpolation active à local_t (du segment qui part du dernier kf avant)
+                pts = sorted((k for k in clip.keyframes if k.property == prop),
+                             key=lambda k: k.time)
+                interp = next((k.interpolation for k in reversed(pts)
+                               if k.time <= local_t), "linear")
+                if not any(k.property == prop and abs(k.time - local_t) < 1e-9
+                           for k in left_kf):
+                    left_kf = upsert(left_kf, Keyframe(prop, local_t, val, interp))
+                if not any(k.property == prop and abs(k.time) < 1e-9
+                           for k in right_kf):
+                    right_kf = upsert(right_kf, Keyframe(prop, 0.0, val, interp))
             if isinstance(clip, MediaClip):
                 left = replace(clip,
                                source_end=clip.source_start + local_t,
