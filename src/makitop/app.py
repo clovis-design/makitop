@@ -1,6 +1,7 @@
 """Point d'entrée : crée le contexte Dear PyGui, assemble les composants et lance la boucle."""
 
 import logging
+import sys
 from concurrent.futures import Executor, ThreadPoolExecutor
 
 import dearpygui.dearpygui as dpg
@@ -242,10 +243,16 @@ def main() -> None:
 
 
 def _window_icon() -> str:
-    """Convertit logo.png en .ico (format attendu par Windows) ; "" garde l'icône par défaut."""
+    """Chemin de l'icône de la fenêtre ; "" garde l'icône par défaut.
+
+    Windows n'accepte qu'un .ico : logo.png est converti. Linux et macOS lisent le PNG
+    directement (et ne savent pas lire un .ico).
+    """
     if not LOGO.exists():
         log.warning("Logo introuvable : %s", LOGO)
         return ""
+    if sys.platform != "win32":
+        return str(LOGO)
     ico = config_dir() / "makitop.ico"
     try:
         from PIL import Image
