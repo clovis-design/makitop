@@ -47,6 +47,7 @@ _COLOR_CLIP_BORDER = (90, 150, 210, 255)
 _COLOR_CLIP_SELECTED = (255, 200, 60, 255)
 _COLOR_CLIP_TEXT = (220, 225, 235, 255)
 _COLOR_FX_BADGE = (140, 90, 220, 230)
+_COLOR_KEY_BADGE = (30, 110, 145, 245)
 _COLOR_PLAYHEAD = (210, 60, 60, 255)
 _COLOR_CURSOR = (255, 255, 255, 55)
 
@@ -71,7 +72,6 @@ _selected_keyframe = None
 _drag_keyframe = None  # (propriété, temps initial, temps provisoire)
 _on_key_select = None
 _on_key_move = None
-_on_key_delete = None
 _KEY_ROW_H = 22
 _KEY_COLOR = (105, 210, 245, 255)
 _get_dragging_media = None   # Callable[[], Media | None]
@@ -83,10 +83,10 @@ def create() -> None:
     global _dragging, _drag_clip, _drag_offset_px, _drag_source_row, _selected_clip
     global _on_delete, _on_clip_moved, _on_track_reordered, _on_select, _on_zoom, _pending_fit_zoom
     global _show_keyframes, _selected_keyframe, _drag_keyframe
-    global _on_key_select, _on_key_move, _on_key_delete
+    global _on_key_select, _on_key_move
     _show_keyframes = True
     _selected_keyframe = _drag_keyframe = None
-    _on_key_select = _on_key_move = _on_key_delete = None
+    _on_key_select = _on_key_move = None
     _zoom_idx = _DEFAULT_ZOOM_IDX
     _px_per_sec = _ZOOM_LEVELS[_DEFAULT_ZOOM_IDX]
     _tracks = []
@@ -113,8 +113,8 @@ def create() -> None:
             dpg.add_button(label="+", width=24, height=22, callback=_zoom_in)
             dpg.add_checkbox(label="Images clés", default_value=True,
                              tag="timeline_show_keyframes", callback=_toggle_keyframes)
-            dpg.add_button(label="Supprimer la clé", tag="timeline_delete_keyframe",
-                           enabled=False, callback=lambda: _on_key_delete and _on_key_delete())
+            with dpg.tooltip("timeline_show_keyframes"):
+                dpg.add_text("Afficher les lignes d'animation du clip sélectionné.")
         dpg.add_separator()
 
         # ── Zone principale : labels (fixe) + timeline (scrollable) ───────────
@@ -252,9 +252,9 @@ def bind_media_drop(fn) -> None:
     _on_media_drop = fn
 
 
-def bind_keyframes(on_select, on_move, on_delete):
-    global _on_key_select, _on_key_move, _on_key_delete
-    _on_key_select, _on_key_move, _on_key_delete = on_select, on_move, on_delete
+def bind_keyframes(on_select, on_move):
+    global _on_key_select, _on_key_move
+    _on_key_select, _on_key_move = on_select, on_move
 
 
 def _toggle_keyframes(sender, value):
@@ -276,8 +276,6 @@ def set_selected(clip_id: str | None, keyframe=None) -> None:
     global _selected_clip, _selected_keyframe
     _selected_clip = next((c for c in _all_clips() if c.id == clip_id), None) if clip_id else None
     _selected_keyframe = keyframe
-    if dpg.does_item_exist("timeline_delete_keyframe"):
-        dpg.configure_item("timeline_delete_keyframe", enabled=keyframe is not None)
     _redraw()
 
 
@@ -387,8 +385,9 @@ def tick() -> None:
                               local_x / _px_per_sec - _selected_clip.timeline_start))
             if abs(time - old_time) * _px_per_sec < 3:
                 time = old_time
-            _drag_keyframe = (property, old_time, time)
-            _redraw_static_only()
+            if time != _drag_keyframe[2]:
+                _drag_keyframe = (property, old_time, time)
+                _redraw_static_only()
         elif _drag_clip is not None and btn_down:
             new_start = max(0.0, (local_x - _drag_offset_px) / _px_per_sec)
 
@@ -854,17 +853,36 @@ def _draw_clips() -> None:
                     parent=_STATIC_LAYER,
                 )
 
-        if getattr(clip, "effects", ()) and w >= 24:
-            # Badge « fx » : le clip porte au moins un effet.
-            bx = x + w - 22
-            dpg.draw_rectangle(
-                (bx, clip_y + 3), (bx + 19, clip_y + 16),
-                fill=_COLOR_FX_BADGE, color=(0, 0, 0, 0), rounding=3,
-                parent=_STATIC_LAYER,
-            )
-            dpg.draw_text((bx + 4, clip_y + 3), "fx", color=_COLOR_CLIP_TEXT, size=12,
-                          parent=_STATIC_LAYER)
+            _draw_clip_badges(clip, x, clip_y, w)
     _draw_keyframes()
+
+
+def _draw_clip_badges(clip: BaseClip, x: int, y: int, width: int) -> None:
+    """Badges compacts en haut à droite, par clip (même si les lignes sont masquées)."""
+    if width < 24:
+        return
+    has_keys = bool(clip.keyframes)
+    has_effects = bool(getattr(clip, "effects", ()))
+    if not has_keys and not has_effects:
+        return
+    # Sur un clip court, privilégier l'animation ; éviter deux badges superposés.
+    show_fx = has_effects and (not has_keys or width >= 44)
+    bx = x + width - 22
+    if has_keys:
+        dpg.draw_rectangle((bx, y + 3), (bx + 19, y + 16),
+                           fill=_COLOR_KEY_BADGE, color=(0, 0, 0, 0), rounding=3,
+                           parent=_STATIC_LAYER)
+        dpg.draw_quad((bx + 9, y + 5), (bx + 13, y + 9),
+                      (bx + 9, y + 13), (bx + 5, y + 9),
+                      fill=_COLOR_CLIP_TEXT, color=_COLOR_CLIP_TEXT,
+                      parent=_STATIC_LAYER, tag=f"key_badge_{clip.id}")
+        bx -= 22
+    if show_fx:
+        dpg.draw_rectangle((bx, y + 3), (bx + 19, y + 16),
+                           fill=_COLOR_FX_BADGE, color=(0, 0, 0, 0), rounding=3,
+                           parent=_STATIC_LAYER)
+        dpg.draw_text((bx + 4, y + 3), "fx", color=_COLOR_CLIP_TEXT, size=12,
+                      parent=_STATIC_LAYER, tag=f"fx_badge_{clip.id}")
 
 
 def _draw_keyframes():

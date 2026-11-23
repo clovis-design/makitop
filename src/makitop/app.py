@@ -97,6 +97,7 @@ def main() -> None:
             playback_controller=playback_controller,
             on_media_selected=select_media,
             on_add_to_timeline=on_add_to_timeline,
+            block_shortcuts=export_dialog.blocks_editor,
         )
         home.create(on_new=project_file.new_project, on_open=project_file.open_dialog)
         import_media.create(on_files_selected=importer.import_files)
@@ -104,7 +105,7 @@ def main() -> None:
         _SEEK_STEP = 5.0
 
         def _on_playback_key(sender, key: int) -> None:
-            if screens.home_shown():
+            if screens.home_shown() or export_dialog.blocks_editor():
                 return
             if key == dpg.mvKey_Spacebar:
                 if playback_controller.is_playing():
@@ -184,8 +185,9 @@ def main() -> None:
                     _poll_error_shown = True
                     message.show("Lecture impossible", str(exc))
 
-            timeline_panel.tick()
-            media_panel.tick()
+            if not export_dialog.blocks_editor():
+                timeline_panel.tick()
+                media_panel.tick()
             export_dialog.tick()
             dpg.render_dearpygui_frame()
 

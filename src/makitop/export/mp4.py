@@ -21,7 +21,7 @@ class ExportCancelled(Exception):
 
 @dataclass(frozen=True)
 class ExportSettings:
-    """Résolution du petit côté, cadence et qualité indépendante de la preview."""
+    """Résolution du petit côté, cadence et qualité de l'export."""
 
     height: int = 1080
     fps: int | None = None
@@ -29,7 +29,7 @@ class ExportSettings:
     preset: str = "medium"
 
     def __post_init__(self):
-        if self.height not in (720, 1080, 2160):
+        if self.height not in (360, 720, 1080, 2160):
             raise ValueError("Résolution d'export inconnue.")
         if self.fps is not None and (type(self.fps) is not int or not 1 <= self.fps <= 120):
             raise ValueError("La cadence doit être comprise entre 1 et 120 fps.")

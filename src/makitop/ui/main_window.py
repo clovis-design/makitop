@@ -51,11 +51,12 @@ def build(
     playback_controller: TimelinePlaybackController | None = None,
     on_media_selected: Callable[[Media], None] | None = None,
     on_add_to_timeline: Callable[[Media], None] | None = None,
+    block_shortcuts: Callable[[], bool] | None = None,
 ) -> None:
     """`actions` associe un libellé de menu (voir menu_bar.MENUS) à la fonction à appeler.
     Les raccourcis clavier (ui/shortcuts.py) déclenchent les mêmes actions."""
     actions = actions or {}
-    shortcuts.install(actions)
+    shortcuts.install(actions, blocked=block_shortcuts)
     preview.create_video_texture()
     setup_fonts()
     with dpg.window(tag=ROOT, no_title_bar=True, no_move=True, no_resize=True):

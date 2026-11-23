@@ -3,7 +3,7 @@
 from dataclasses import replace
 from math import ceil
 
-from makitop.model.composition import FORMATS, Transform
+from makitop.model.composition import FORMATS, Transform, with_zoom
 from makitop.model.effects import CATALOG, Effect
 from makitop.model.keyframes import PROPERTIES, Keyframe, curve, upsert
 from makitop.model.media import MediaKind
@@ -125,11 +125,36 @@ class CompositionEditor:
         clip = self.selected
         if clip is None:
             return
-        if property == "volume":
+        if property == "zoom":
+            if curve(clip.keyframes, "zoom"):
+                time = self.keyframe_time()
+                keys = self._value_key(clip.keyframes, "zoom", time, value)
+                replace(clip, keyframes=keys).transform_at(time)
+                self.selected_keyframe = ("zoom", time)
+                self.update_clip(clip.id, keyframes=keys)
+            else:
+                self.update_clip(clip.id, transform=with_zoom(clip.transform, value))
+        elif property == "volume":
             self.update_clip(clip.id, volume=value)
         else:
             transform = replace(clip.transform_at(self.keyframe_time()), **{property: value})
             self.update_clip(clip.id, transform=transform)
+
+    def set_selected_keyframe_value(self, value):
+        """Modifie la clé sélectionnée, indépendamment de la tête de lecture."""
+        clip = self.selected
+        if clip is None or self.selected_keyframe is None:
+            return
+        property, time = self.selected_keyframe
+        key = next((k for k in clip.keyframes if (k.property, k.time) == (property, time)), None)
+        if key is None:
+            raise ValueError("Image clé introuvable.")
+        if value == key.value:
+            return
+        keys = upsert(clip.keyframes, replace(key, value=value))
+        if property == "zoom":
+            replace(clip, keyframes=keys).transform_at(time)
+        self.update_clip(clip.id, keyframes=keys)
 
     def toggle_keyframe(self, property):
         clip = self.selected
@@ -141,6 +166,7 @@ class CompositionEditor:
             self.remove_keyframe(property, time)
             return
         value = (clip.volume_at(time) if property == "volume"
+                 else clip.transform_at(time).width if property == "zoom"
                  else getattr(clip.transform_at(time), property))
         self.selected_keyframe = (property, time)
         self.update_clip(clip.id, keyframes=upsert(clip.keyframes, Keyframe(property, time, value)))
