@@ -5,6 +5,7 @@ from makitop.ui.panels.timeline.panel import (
     add_clip,
     bind_clip_moved,
     bind_copy,
+    bind_cut,
     bind_delete,
     bind_duplicate,
     bind_paste,
@@ -49,6 +50,7 @@ def bind(editor, on_error=None) -> None:
     bind_split(editor.split_at_playhead)
     bind_duplicate(editor.duplicate_selected)
     bind_copy(editor.copy_selected)
+    bind_cut(editor.cut_selected)
     bind_paste(editor.paste_clip)
     bind_clip_moved(lambda clip: _bridge_drag(editor, clip))
     bind_track_reordered(lambda: _bridge_reorder(editor))
@@ -103,6 +105,11 @@ def duplicate_selected() -> None:
 def copy_selected() -> None:
     if _editor is not None:
         _editor.copy_selected()
+
+
+def cut_selected() -> None:
+    if _editor is not None:
+        _editor.cut_selected()
 
 
 def paste_clip() -> None:

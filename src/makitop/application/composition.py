@@ -409,6 +409,15 @@ class CompositionEditor:
         if self.selected is not None:
             self._clipboard = self.selected
 
+    def cut_selected(self):
+        clip = self.selected
+        if clip is None:
+            return
+        self._clipboard = clip
+        self.project.timeline.remove_clip(clip.id)
+        self.selected_id = None
+        self._edited()
+
     def paste_clip(self):
         if self._clipboard is None:
             return

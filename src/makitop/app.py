@@ -129,6 +129,8 @@ def main() -> None:
                 timeline_panel.duplicate_selected()
             elif ctrl and key == dpg.mvKey_C:
                 timeline_panel.copy_selected()
+            elif ctrl and key == dpg.mvKey_X:
+                timeline_panel.cut_selected()
             elif ctrl and key == dpg.mvKey_V:
                 timeline_panel.paste_clip()
             elif ctrl and key in (dpg.mvKey_Subtract, dpg.mvKey_Minus):
