@@ -5,6 +5,7 @@ from collections.abc import Callable
 import dearpygui.dearpygui as dpg
 
 from makitop.application.projects import ProjectSession
+from makitop.ui.dialogs import center_window
 
 TAG = "unsaved_changes_window"
 TEXT_TAG = "unsaved_changes_text"
@@ -12,6 +13,7 @@ SAVE_BUTTON = "unsaved_changes_save"
 DISCARD_BUTTON = "unsaved_changes_discard"
 CANCEL_BUTTON = "unsaved_changes_cancel"
 WIDTH = 460
+HEIGHT = 120
 
 # save(then) enregistre le projet (en demandant un emplacement si besoin) puis appelle then.
 SaveThen = Callable[[Callable[[], None]], None]
@@ -54,9 +56,7 @@ def confirm(then: Callable[[], None]) -> None:
         f"Enregistrer les modifications de « {_session.project.name} » ?\n"
         "Sinon, elles seront perdues.",
     )
-    if dpg.is_viewport_ok():  # pas de viewport dans les tests
-        x = max((dpg.get_viewport_client_width() - WIDTH) // 2, 0)
-        dpg.set_item_pos(TAG, [x, dpg.get_viewport_client_height() // 3])
+    center_window(TAG, WIDTH, HEIGHT)
     dpg.show_item(TAG)
     dpg.focus_item(TAG)
 

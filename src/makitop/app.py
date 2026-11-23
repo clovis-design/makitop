@@ -151,6 +151,7 @@ def main() -> None:
             dpg.add_key_press_handler(callback=_on_playback_key)
 
         preview.bind(editor, composition_error)
+        preview.bind_export(editor_only(export_dialog.open))
         properties.bind(editor, composition_error)
         timeline_panel.bind(editor, composition_error)
         effects_panel.bind(apply_effect)

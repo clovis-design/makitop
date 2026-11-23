@@ -86,12 +86,18 @@ _texture = VIDEO_TEXTURE_TAG
 _pixels = None
 _rgba8 = None
 _selection_key = None
+_on_export = None
 
 
 def bind(editor, on_error):
     global _editor, _on_error
     _editor, _on_error = editor, on_error
     refresh()
+
+
+def bind_export(fn) -> None:
+    global _on_export
+    _on_export = fn
 
 
 def _call(action):
@@ -293,6 +299,10 @@ def _header():
             dpg.add_combo(FPS_CHOICES, default_value="60", width=FPS_W,
                           tag="composition_fps", callback=_fps_changed)
             dpg.add_text("ips", color=COLORS["label_muted"])
+            dpg.add_button(label="Exporter", tag="preview_export_btn",
+                           callback=lambda: _on_export() if _on_export else None)
+            with dpg.tooltip("preview_export_btn"):
+                dpg.add_text("Exporter la vidéo")
     dpg.bind_item_theme(HEADER, BAR_THEME)
 
 
@@ -422,7 +432,7 @@ def resize(width, height):
     dpg.configure_item(CANVAS, width=_size[0], height=_size[1])
     dpg.configure_item(VIDEO_IMAGE_TAG, pmax=_size)
     # En-tête : qualité + fps alignés à droite.
-    right_w = QUALITY_W + FPS_W + 2 * ITEM_SPACING + _text_width("ips")
+    right_w = QUALITY_W + FPS_W + 3 * ITEM_SPACING + _text_width("ips") + _text_width("Exporter") + 16
     dpg.configure_item(HEADER_RIGHT, pos=(max(0, int(width - BAR_PAD[0] - right_w)),
                                           BAR_PAD[1]))
     # Barre de progression sur toute la largeur.

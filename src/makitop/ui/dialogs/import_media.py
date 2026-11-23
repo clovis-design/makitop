@@ -11,6 +11,7 @@ DIALOG_TAG = "import_media_dialog"
 ERRORS_TAG = "import_media_errors"
 ERRORS_LIST_TAG = "import_media_errors_list"
 ERRORS_WIDTH = 450
+ERRORS_HEIGHT = 110
 
 _FILTERS: list[tuple[str, frozenset[str]]] = [
     ("Tous les médias", VIDEO_EXTENSIONS | AUDIO_EXTENSIONS | IMAGE_EXTENSIONS),
@@ -84,16 +85,14 @@ def show_error(path: Path, message: str) -> None:
 def _add_error(message: str) -> None:
     dpg.add_text(message, parent=ERRORS_LIST_TAG, wrap=ERRORS_WIDTH - 30)
     if not dpg.is_item_shown(ERRORS_TAG):
-        _center(ERRORS_TAG, ERRORS_WIDTH)
+        _center(ERRORS_TAG, ERRORS_WIDTH, ERRORS_HEIGHT)
         dpg.show_item(ERRORS_TAG)
     dpg.focus_item(ERRORS_TAG)
 
 
-def _center(tag: str | int, width: int) -> None:
-    if not dpg.is_viewport_ok():  # pas de viewport dans les tests
-        return
-    x = max((dpg.get_viewport_client_width() - width) // 2, 0)
-    dpg.set_item_pos(tag, [x, dpg.get_viewport_client_height() // 3])
+def _center(tag: str | int, width: int, height: int) -> None:
+    from makitop.ui.dialogs import center_window
+    center_window(tag, width, height)
 
 
 def _filter_string(label: str, extensions: frozenset[str]) -> str:
