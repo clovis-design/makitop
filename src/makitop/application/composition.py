@@ -3,12 +3,13 @@
 from dataclasses import replace
 from math import ceil
 
-from makitop.model.composition import FORMATS, Transform, with_zoom
+from makitop.model.composition import FORMATS, Transform, normalize_angle, with_zoom
 from makitop.model.effects import CATALOG, Effect
-from makitop.model.keyframes import PROPERTIES, Keyframe, curve, upsert
+from makitop.model.keyframes import Keyframe, curve, upsert
 from makitop.model.media import MediaKind
 from makitop.model.project import Project
-from makitop.model.timeline import ImageClip, MediaClip, Timeline
+from makitop.model.text import PRESETS
+from makitop.model.timeline import ImageClip, MediaClip, TextClip, Timeline
 
 
 class CompositionEditor:
@@ -60,9 +61,69 @@ class CompositionEditor:
         track = max((c.track for c in self.project.timeline.clips), default=-1) + 1
         clip = self._new_clip(media, start, track)
         self.project.timeline.add_clip(clip)
-        self.selected_id = clip.id
+        self.selected_id, self.selected_keyframe = clip.id, None
         self._edited(start)
         return clip
+
+    def add_text(self, preset: str) -> TextClip:
+        template = PRESETS[preset]
+        start = self.project.view.playhead if self.source_mode else self.playback.current_time()
+        duration = 5.0
+        clips = self.project.timeline.clips
+        front_media = max((c.track for c in clips if not isinstance(c, TextClip)), default=-1)
+        occupied = {c.track for c in clips
+                    if start < c.timeline_end and c.timeline_start < start + duration}
+        track = next((track for track in range(front_media + 1, 100)
+                      if track not in occupied), None)
+        if track is None:
+            raise ValueError("Aucune piste libre au premier plan à cet instant.")
+        clip = TextClip(start, duration, template.content, style=template.style,
+                        transform=template.box, track=track)
+        self.project.timeline.add_clip(clip)
+        self.selected_id, self.selected_keyframe = clip.id, None
+        self._edited(start)
+        return clip
+
+    def update_text_style(self, **changes):
+        clip = self.selected
+        if isinstance(clip, TextClip):
+            style = replace(clip.style, **changes)
+            if style != clip.style:
+                self.update_clip(clip.id, style=style)
+
+    def set_clip_orientation(self, *, rotation=None, flip_horizontal=None, flip_vertical=None):
+        clip = self.selected
+        if clip is None or isinstance(clip, TextClip) or clip.media.kind == MediaKind.AUDIO:
+            return
+        transform = clip.transform
+        updated = replace(
+            transform,
+            rotation=transform.rotation if rotation is None else normalize_angle(rotation),
+            flip_horizontal=(transform.flip_horizontal if flip_horizontal is None
+                             else flip_horizontal),
+            flip_vertical=transform.flip_vertical if flip_vertical is None else flip_vertical,
+        )
+        if updated != transform:
+            self.update_clip(clip.id, transform=updated, animate_transform=False)
+
+    def set_clip_speed(self, speed):
+        clip = self.selected
+        if not isinstance(clip, MediaClip):
+            return
+        # Valider avant de déplacer la tête de lecture ou les images clés.
+        updated = replace(clip, speed=speed)
+        if updated.speed == clip.speed:
+            return
+        factor = clip.speed / updated.speed
+        keys = tuple(replace(key, time=key.time * factor) for key in clip.keyframes)
+        current = (self.project.view.playhead if self.source_mode
+                   else self.playback.current_time())
+        if not self.source_mode and clip.timeline_start <= current <= clip.timeline_end:
+            current = clip.timeline_start + (current - clip.timeline_start) * factor
+        if self.selected_keyframe is not None:
+            name, time = self.selected_keyframe
+            self.selected_keyframe = (name, time * factor)
+        self.update_clip(clip.id, speed=updated.speed, keyframes=keys, position=current)
 
     def select(self, clip_id):
         if clip_id != self.selected_id:
@@ -76,7 +137,7 @@ class CompositionEditor:
         else:
             self.on_refresh()
 
-    def update_clip(self, clip_id, *, position=None, **changes):
+    def update_clip(self, clip_id, *, position=None, animate_transform=True, **changes):
         clips = self.project.timeline.clips
         index = next(i for i, c in enumerate(clips) if c.id == clip_id)
         clip = clips[index]
@@ -87,9 +148,10 @@ class CompositionEditor:
         if "volume" in changes and curve(keys, "volume"):
             keys = self._value_key(keys, "volume", time, changes.pop("volume"))
             self.selected_keyframe = ("volume", time)
-        if "transform" in changes:
+        if animate_transform and "transform" in changes:
             transform = changes["transform"]
-            current = clip.transform_at(time)
+            current = (clip.unzoomed_transform_at(time) if isinstance(clip, TextClip)
+                       else clip.transform_at(time))
             base = {}
             for name in ("x", "y", "width", "height"):
                 if curve(keys, name):
@@ -137,7 +199,10 @@ class CompositionEditor:
         elif property == "volume":
             self.update_clip(clip.id, volume=value)
         else:
-            transform = replace(clip.transform_at(self.keyframe_time()), **{property: value})
+            time = self.keyframe_time()
+            transform = (clip.unzoomed_transform_at(time) if isinstance(clip, TextClip)
+                         else clip.transform_at(time))
+            transform = replace(transform, **{property: value})
             self.update_clip(clip.id, transform=transform)
 
     def set_selected_keyframe_value(self, value):
@@ -158,16 +223,21 @@ class CompositionEditor:
 
     def toggle_keyframe(self, property):
         clip = self.selected
-        if clip is None or property not in PROPERTIES:
+        if clip is None or property not in clip.keyframe_properties:
             raise ValueError("Sélectionnez un clip et une propriété animable.")
         self.playback.pause()
         time = self.keyframe_time()
         if any(k.property == property and abs(k.time - time) < 1e-9 for k in clip.keyframes):
             self.remove_keyframe(property, time)
             return
-        value = (clip.volume_at(time) if property == "volume"
-                 else clip.transform_at(time).width if property == "zoom"
-                 else getattr(clip.transform_at(time), property))
+        if property == "volume":
+            value = clip.volume_at(time)
+        elif property == "opacity":
+            value = clip.opacity_at(time)
+        elif isinstance(clip, TextClip) and property != "zoom":
+            value = getattr(clip.unzoomed_transform_at(time), property)
+        else:
+            value = getattr(clip.transform_at(time), "width" if property == "zoom" else property)
         self.selected_keyframe = (property, time)
         self.update_clip(clip.id, keyframes=upsert(clip.keyframes, Keyframe(property, time, value)))
 
@@ -244,10 +314,12 @@ class CompositionEditor:
         clip = self.selected
         if clip is None:
             return
-        target = clip.track + direction
-        if not 0 <= target <= 99:
-            return
         previous = clip.track
+        tracks = {c.track for c in self.project.timeline.clips
+                  if (c.track - previous) * direction > 0}
+        if not tracks:
+            return
+        target = min(tracks) if direction > 0 else max(tracks)
         for current in self.project.timeline.clips:
             if current.track == previous:
                 current.track = target
@@ -257,8 +329,8 @@ class CompositionEditor:
 
     def add_effect(self, kind):
         clip = self.selected
-        if clip is None:
-            raise ValueError("Sélectionnez un clip dans la timeline.")
+        if clip is None or isinstance(clip, TextClip):
+            raise ValueError("Sélectionnez une vidéo ou une image dans la timeline.")
         if any(e.kind == kind for e in clip.effects):
             raise ValueError("Effet déjà appliqué à ce clip.")
         effect = Effect(kind, CATALOG[kind].default)

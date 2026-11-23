@@ -1,18 +1,20 @@
 """Composition des vidéos et images actives, du fond vers le premier plan."""
 
+import math
 from collections import OrderedDict
 
 import cv2
 import numpy as np
 from PIL import Image, ImageOps
 
+from makitop.engine import text
 from makitop.engine.cache import FrameCache
 from makitop.engine.decoder import MediaDecoder
 from makitop.engine.effects import video as video_effects
 from makitop.model.composition import FORMATS, fitted_bounds
 from makitop.model.effects import TIME_DEPENDENT
 from makitop.model.media import MediaKind
-from makitop.model.timeline import ImageClip
+from makitop.model.timeline import ImageClip, MediaClip, TextClip
 
 
 class TimelineRenderer:
@@ -37,21 +39,26 @@ class TimelineRenderer:
             width, height = round(w * self.preview_height / 1080), round(
                 h * self.preview_height / 1080,
             )
-        clips = [c for c in project.timeline.clips_at(time) if c.media.kind != MediaKind.AUDIO]
+        clips = [c for c in project.timeline.clips_at(time)
+                 if isinstance(c, TextClip) or c.media.kind != MediaKind.AUDIO]
         sources = []
         local_times = [time - c.timeline_start for c in clips]
         transforms = [c.transform_at(t) for c, t in zip(clips, local_times, strict=True)]
-        for clip in clips:
+        for clip, local_time, transform in zip(clips, local_times, transforms, strict=True):
+            if isinstance(clip, TextClip):
+                sources.append((("text", clip.content, clip.style, clip.opacity_at(local_time),
+                                 clip.font_scale_at(local_time, transform)), None))
+                continue
             stat = clip.media.path.stat()
             identity = (str(clip.media.path.resolve()), stat.st_mtime_ns, stat.st_size)
-            source_time = (None if isinstance(clip, ImageClip) else
-                           max(clip.source_start, clip.source_start + time - clip.timeline_start))
+            source_time = clip.source_time_at(time) if isinstance(clip, MediaClip) else None
             sources.append((identity, None if source_time is None else round(source_time, 9)))
         # Une image fixe avec un effet animé change à chaque frame : le temps local
         # du clip fait alors partie de la clé.
         key = ("composition", width, height, tuple(
             (s, transform, c.track, c.effects,
-             round(t, 6) if any(e.kind in TIME_DEPENDENT for e in c.effects) else None)
+             (round(t, 6), c.duration)
+             if any(e.kind in TIME_DEPENDENT for e in c.effects) else None)
             for s, c, t, transform in zip(sources, clips, local_times, transforms, strict=True)))
         cached = self.cache.get(key)
         if cached is not None:
@@ -60,6 +67,11 @@ class TimelineRenderer:
         for clip, (identity, source_time), local_t, transform in zip(
             clips, sources, local_times, transforms, strict=True,
         ):
+            if isinstance(clip, TextClip):
+                opacity, font_scale = identity[-2:]
+                text.composite(result, clip.content, clip.style, transform,
+                               opacity=opacity, font_scale=font_scale)
+                continue
             image = self._source(clip, identity, source_time)
             self._composite(result, image, transform, clip.effects,
                             local_t, clip.duration, frame_index)
@@ -108,21 +120,50 @@ class TimelineRenderer:
         image = image[top:bottom, left:right]
         x, y = round(x * width), round(y * height)
         w, h = max(1, round(box_w * width)), max(1, round(box_h * height))
-        x0, y0, x1, y1 = max(0, x), max(0, y), min(width, x + w), min(height, y + h)
+        matrix = None
+        if t.rotation:
+            center = ((w - 1) / 2, (h - 1) / 2)
+            matrix = cv2.getRotationMatrix2D(center, -t.rotation, 1)
+            cos, sin = abs(matrix[0, 0]), abs(matrix[0, 1])
+            # Restreindre la déformation à la zone visible du cadre.
+            cx, cy = x + center[0], y + center[1]
+            rx, ry = (cos * w + sin * h) / 2, (sin * w + cos * h) / 2
+            x0, y0 = max(0, math.floor(cx - rx)), max(0, math.floor(cy - ry))
+            x1, y1 = min(width, math.ceil(cx + rx + 1)), min(height, math.ceil(cy + ry + 1))
+        else:
+            x0, y0, x1, y1 = max(0, x), max(0, y), min(width, x + w), min(height, y + h)
         if x1 <= x0 or y1 <= y0:
             return
         interpolation = (cv2.INTER_AREA if w <= image.shape[1] and h <= image.shape[0]
                          else cv2.INTER_LANCZOS4)
         resized = cv2.resize(image, (w, h), interpolation=interpolation)
         # Effets appliqués à la taille d'affichage : leur coût ne dépend pas de la source.
-        scaled = video_effects.apply(resized, effects, local_t, duration,
-                                     frame_index)[y0 - y:y1 - y, x0 - x:x1 - x]
+        scaled = video_effects.apply(resized, effects, local_t, duration, frame_index)
+        if t.flip_horizontal or t.flip_vertical:
+            axis = -1 if t.flip_horizontal and t.flip_vertical else int(t.flip_horizontal)
+            scaled = cv2.flip(scaled, axis)
         target = canvas[y0:y1, x0:x1]
+        if matrix is not None:
+            matrix[:, 2] += (x - x0, y - y0)
+            TimelineRenderer._composite_rotated(target, scaled, matrix)
+            return
+        scaled = scaled[y0 - y:y1 - y, x0 - x:x1 - x]
         if scaled.shape[2] == 4:
             alpha = scaled[:, :, 3:4].astype(np.float32) / 255
             target[:] = np.rint(scaled[:, :, :3] * alpha + target * (1 - alpha)).astype(np.uint8)
         else:
             target[:] = scaled
+
+    @staticmethod
+    def _composite_rotated(target, image, matrix):
+        # Une bordure transparente (et non noire) laisse voir les calques derrière.
+        rgba = np.empty((*image.shape[:2], 4), dtype=np.float32)
+        rgba[..., :3] = image[..., :3]
+        rgba[..., 3] = image[..., 3] / 255 if image.shape[2] == 4 else 1
+        rgba[..., :3] *= rgba[..., 3:4]
+        height, width = target.shape[:2]
+        rotated = cv2.warpAffine(rgba, matrix, (width, height), flags=cv2.INTER_LINEAR)
+        target[:] = np.rint(rotated[..., :3] + target * (1 - rotated[..., 3:4])).astype(np.uint8)
 
     def close(self):
         for decoder in self.decoders.values():

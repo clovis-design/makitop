@@ -13,15 +13,16 @@ from makitop.storage.project_file import ProjectFileError, load, save
 def test_composition_round_trip(video_file, image_file, tmp_path):
     video, photo = probe(video_file), probe(image_file)
     project = Project(canvas_format="9:16", media=[video, photo], timeline=Timeline(fps=25, clips=[
-        MediaClip(2, video, 0.1, 0.9, track=2, volume=0.4, muted=True,
-                  transform=Transform(x=0.25, width=0.5, crop_left=0.1),
+        MediaClip(2, video, 0.1, 0.9, track=2, volume=0.4, muted=True, speed=2,
+                  transform=Transform(x=0.25, width=0.5, crop_left=0.1,
+                                      rotation=45, flip_horizontal=True, flip_vertical=True),
                   effects=(Effect("sepia", 0.7), Effect("fade_in", 1.5))),
         ImageClip(0, photo, 8, track=0, transform=Transform(y=0.3, height=0.4)),
     ]))
     path = tmp_path / "composition.makitop"
     save(project, path)
     assert load(path) == project
-    assert json.loads(path.read_text())["version"] == 5
+    assert json.loads(path.read_text())["version"] == 11
 
 
 def test_unknown_effect_is_reported_as_corrupt_project(image_file, tmp_path):
@@ -46,7 +47,7 @@ def test_v2_migration_preserves_clips(video_file, tmp_path, legacy_shape):
     del data["canvas_format"]
     del data["fps"]
     clip = data["timeline"][0]
-    for key in ("track", "transform", "volume", "muted"):
+    for key in ("track", "transform", "volume", "muted", "speed"):
         del clip[key]
     if legacy_shape == "dict":
         del clip["clip_type"]
@@ -58,6 +59,7 @@ def test_v2_migration_preserves_clips(video_file, tmp_path, legacy_shape):
     assert loaded.timeline.clips[0].source_start == 0.2
     assert loaded.timeline.clips[0].transform == Transform()
     assert loaded.timeline.clips[0].volume == 1
+    assert loaded.timeline.clips[0].speed == 1
     assert loaded.canvas_format == "16:9"
     assert loaded.timeline.fps == (24 if legacy_shape == "dict" else 30)
 

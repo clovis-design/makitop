@@ -8,11 +8,10 @@ import numpy as np
 
 from makitop.engine.effects import video
 from makitop.model.effects import CATALOG, CATEGORIES, Effect
+from makitop.ui.panels import catalog_grid
+from makitop.ui.panels.catalog_grid import THUMB_H, THUMB_W
 
-THUMB_W, THUMB_H = 84, 47
-COLUMNS = 3
 REGISTRY = "effects_texture_registry"
-TILE_THEME = "effects_tile_theme"
 HINT = "Sélectionnez un clip dans la timeline, puis cliquez sur un effet."
 _HINT_COLOR = (150, 155, 175)
 _TILE_BG = np.array([24, 28, 58], dtype=np.float32)
@@ -75,47 +74,19 @@ def _load_textures() -> None:
                                    default_value=thumbnail(kind), tag=texture_tag(kind))
 
 
-def _theme() -> None:
-    if dpg.does_alias_exist(TILE_THEME):
-        return
-    with dpg.theme(tag=TILE_THEME):
-        with dpg.theme_component(dpg.mvImageButton):
-            dpg.add_theme_color(dpg.mvThemeCol_Button, (0, 0, 0, 0))
-            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (60, 120, 175, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (40, 100, 155, 255))
-            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 2, 2)
-            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 6)
-        with dpg.theme_component(dpg.mvAll):
-            dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 8, 2)
-
-
 def build() -> None:
     """Construit le contenu de la section, dans le conteneur courant."""
     _load_textures()
-    _theme()
     dpg.add_text(HINT, wrap=0, color=_HINT_COLOR)
     for category in CATEGORIES:
         kinds = [kind for kind, spec in CATALOG.items() if spec.category == category]
-        dpg.add_spacer(height=4)
-        dpg.add_text(category)
-        with dpg.table(header_row=False) as table:
-            for _ in range(COLUMNS):
-                dpg.add_table_column()
-            for start in range(0, len(kinds), COLUMNS):
-                with dpg.table_row():
-                    for kind in kinds[start:start + COLUMNS]:
-                        _tile(kind)
-        dpg.bind_item_theme(table, TILE_THEME)
+        catalog_grid.section(category, kinds, _tile)
 
 
 def _tile(kind: str) -> None:
     spec = CATALOG[kind]
-    with dpg.table_cell():
-        dpg.add_image_button(texture_tag(kind), tag=button_tag(kind), width=THUMB_W,
-                             height=THUMB_H, callback=_clicked, user_data=kind)
-        with dpg.tooltip(button_tag(kind)):
-            dpg.add_text(spec.description)
-        dpg.add_text(spec.label)
+    catalog_grid.tile(button_tag(kind), texture_tag(kind), spec.label, spec.description,
+                      _clicked, kind)
 
 
 def _clicked(sender, app_data, kind: str) -> None:
