@@ -47,6 +47,25 @@ def test_boutons_nouveau_et_ouvrir(context):
     assert calls == ["nouveau", "ouvrir"]
 
 
+def test_logo_affiche_a_l_echelle(context, tmp_path, monkeypatch):
+    from PIL import Image
+
+    logo = tmp_path / "logo+titre.png"
+    Image.new("RGBA", (400, 100), (255, 0, 0, 255)).save(logo)
+    monkeypatch.setattr(home, "LOGO_TITLE", logo)
+    home.create(on_new=lambda: None, on_open=lambda: None)
+    assert not dpg.does_item_exist(home.TITLE_TAG)
+    config = dpg.get_item_configuration(home.LOGO_TAG)
+    assert (config["width"], config["height"]) == (320, home._LOGO_HEIGHT)
+
+
+def test_titre_texte_si_logo_absent(context, tmp_path, monkeypatch):
+    monkeypatch.setattr(home, "LOGO_TITLE", tmp_path / "absent.png")
+    home.create(on_new=lambda: None, on_open=lambda: None)
+    assert not dpg.does_item_exist(home.LOGO_TAG)
+    assert dpg.get_value(home.TITLE_TAG) == "Makitop"
+
+
 def test_liste_vide(context):
     home.create(on_new=lambda: None, on_open=lambda: None)
     assert _selectables() == []
