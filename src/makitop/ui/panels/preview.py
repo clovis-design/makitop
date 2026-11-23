@@ -1,10 +1,16 @@
-"""Cadre de composition : sélection, déplacement, taille et recadrage à la souris."""
+"""Viewer (inspiré de DaVinci Resolve) : en-tête de réglages, image centrée sur fond sombre,
+barre de progression et barre de transport avec timecode.
+
+Le cadre de composition gère la sélection, le déplacement, la taille et le recadrage
+à la souris.
+"""
 
 import cv2
 import dearpygui.dearpygui as dpg
 import numpy as np
 
 from makitop.model.composition import FORMATS, drag_transform, fitted_bounds
+from makitop.ui.assets.style import COLORS
 from makitop.ui.panels import transport_icons
 
 TAG = "preview_panel"
@@ -19,20 +25,63 @@ PREVIEW_HEIGHT = 360
 TEXTURES = "preview_textures"
 FPS_CHOICES = ["24", "25", "30", "48", "50", "60", "90", "120"]
 PREVIEW_QUALITIES = {"Fluide (360p)": 360, "HD (720p)": 720, "Full HD (1080p)": 1080}
-TRANSPORT_SPACER = "transport_spacer"
-TRANSPORT_THEME = "transport_theme"
+DROP_HINT = "Glissez un média ici"
+
+HEADER = "preview_header"
+HEADER_RIGHT = "preview_header_right"
+VIEWER = "preview_viewer"
+VIEWER_PAD_X = "preview_viewer_pad_x"
+VIEWER_PAD_Y = "preview_viewer_pad_y"
+SCRUBBER = "preview_scrubber"
+SCRUB_TRACK = "preview_scrub_track"
+SCRUB_FILL = "preview_scrub_fill"
+SCRUB_HEAD = "preview_scrub_head"
+TRANSPORT = "preview_transport"
+TRANSPORT_BUTTONS = "preview_transport_buttons"
 PLAY_BUTTON = "transport_play"
-# Largeur approximative des boutons + temps, pour centrer la barre.
-TRANSPORT_WIDTH = 250
+FULLSCREEN_BUTTON = "transport_fullscreen"
+FULLSCREEN_HINT = "transport_fullscreen_hint"
+
+PANEL_THEME = "preview_theme"
+BAR_THEME = "preview_bar_theme"
+VIEWER_THEME = "preview_viewer_theme"
+TRANSPORT_THEME = "transport_theme"
+PLAY_THEME = "transport_play_theme"
+
+HEADER_H = 32
+SCRUB_H = 10
+TRANSPORT_H = 38
+VIEWER_MARGIN = 12
+BAR_PAD = (8, 5)
+ITEM_SPACING = 6
+QUALITY_W = 145
+FPS_W = 60
+BUTTON_PAD = (6, 4)
+# Largeur des 4 boutons de transport (icône + marges) et de leurs espacements.
+BUTTONS_W = 4 * (transport_icons.ICON_SIZE + 2 * BUTTON_PAD[0]) + 3 * ITEM_SPACING
+BUTTONS_H = transport_icons.ICON_SIZE + 2 * BUTTON_PAD[1]
+BUTTON_W = transport_icons.ICON_SIZE + 2 * BUTTON_PAD[0]
+# Ordonnées dans la barre de transport, pour centrer verticalement chaque élément.
+BUTTONS_Y = (TRANSPORT_H - BUTTONS_H) // 2
+TIMECODE_Y = (TRANSPORT_H - 22) // 2
+TOTAL_Y = (TRANSPORT_H - 18) // 2
 
 _editor = None
 _playback = None
 _shown_playing = False
 _on_error = None
 _gesture = None
-_size = (640, 360)
-_available = (640, 360)
+_scrubbing = False
+_fullscreen = False
+_on_toggle_fullscreen = None
+_panel = (PREVIEW_WIDTH + 2 * VIEWER_MARGIN,
+          PREVIEW_HEIGHT + 2 * VIEWER_MARGIN + HEADER_H + SCRUB_H + TRANSPORT_H)
+_size = (PREVIEW_WIDTH, PREVIEW_HEIGHT)
+_available = (PREVIEW_WIDTH, PREVIEW_HEIGHT)
 _time = 0.0
+_fps = 30
+_shown_time = None
+_scrub_px = None
 _texture = VIDEO_TEXTURE_TAG
 _pixels = None
 _rgba8 = None
@@ -93,15 +142,25 @@ def update_frame(frame):
     np.multiply(_rgba8, np.float32(1 / 255), out=_pixels)
 
 
-def format_time(seconds):
-    return f"{int(seconds // 60):02d}:{int(seconds % 60):02d}"
+def format_time(seconds, fps=30):
+    """Timecode HH:MM:SS:FF, comme dans DaVinci Resolve."""
+    fps = max(1, int(fps))
+    frames = int(max(0.0, seconds) * fps + 1e-6)
+    total, ff = divmod(frames, fps)
+    hours, rest = divmod(total, 3600)
+    minutes, secs = divmod(rest, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}:{ff:02d}"
 
 
 def update_time(seconds):
-    global _time
+    global _time, _shown_time
     _time = seconds
-    dpg.set_value(TIME_TEXT_TAG, format_time(seconds))
+    text = format_time(seconds, _fps)
+    if text != _shown_time:
+        _shown_time = text
+        dpg.set_value(TIME_TEXT_TAG, text)
     _sync_play_icon()
+    _sync_scrubber()
     if dpg.does_item_exist(OVERLAY):
         _draw_selection()
 
@@ -117,7 +176,27 @@ def _sync_play_icon():
 
 
 def initFinalTime(seconds):
-    dpg.set_value(FINAL_TIME_TEXT_TAG, format_time(seconds))
+    dpg.set_value(FINAL_TIME_TEXT_TAG, format_time(seconds, _fps))
+
+
+def _duration():
+    return _playback.duration if _playback is not None else 0
+
+
+def _sync_scrubber():
+    """Avance la partie lue de la barre de progression, au pixel près."""
+    global _scrub_px
+    if not dpg.does_item_exist(SCRUB_FILL):
+        return
+    width = _panel[0]
+    duration = _duration()
+    ratio = min(1.0, max(0.0, _time / duration)) if duration > 0 else 0.0
+    px = round(ratio * width)
+    if px == _scrub_px:
+        return
+    _scrub_px = px
+    dpg.configure_item(SCRUB_FILL, pmax=(px, SCRUB_H - 2))
+    dpg.configure_item(SCRUB_HEAD, pmin=(max(0, px - 1), 0), pmax=(max(2, px + 1), SCRUB_H))
 
 
 def _go_start():
@@ -141,15 +220,48 @@ def _go_end():
         _call(lambda: _playback.seek(_playback.duration))
 
 
-def _transport_theme():
-    if dpg.does_alias_exist(TRANSPORT_THEME):
+# --- Construction ---------------------------------------------------------------
+
+def _themes():
+    if dpg.does_alias_exist(PANEL_THEME):
         return
+    with dpg.theme(tag=PANEL_THEME):
+        with dpg.theme_component(dpg.mvAll):
+            dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, ITEM_SPACING, 0)
+            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 3)
+            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 6, 3)
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBg, COLORS["field_bg"])
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, COLORS["field_hover"])
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, COLORS["field_hover"])
+            dpg.add_theme_color(dpg.mvThemeCol_CheckMark, COLORS["accent_active"])
+            dpg.add_theme_color(dpg.mvThemeCol_Button, COLORS["accent"])
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, COLORS["accent_active"])
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, COLORS["accent_active"])
+            dpg.add_theme_color(dpg.mvThemeCol_Header, COLORS["accent"])
+            dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered, COLORS["section_hover"])
+        # Flèche des listes déroulantes : discrète, l'accent n'apparaît qu'au survol.
+        with dpg.theme_component(dpg.mvCombo):
+            dpg.add_theme_color(dpg.mvThemeCol_Button, COLORS["field_hover"])
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, COLORS["accent"])
+    with dpg.theme(tag=BAR_THEME), dpg.theme_component(dpg.mvAll):
+        dpg.add_theme_color(dpg.mvThemeCol_ChildBg, COLORS["section_header"])
+        dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, *BAR_PAD)
+        dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, ITEM_SPACING, 4)
+    with dpg.theme(tag=VIEWER_THEME), dpg.theme_component(dpg.mvAll):
+        dpg.add_theme_color(dpg.mvThemeCol_ChildBg, COLORS["viewer_bg"])
+        dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 0, 0)
     with dpg.theme(tag=TRANSPORT_THEME), dpg.theme_component(dpg.mvImageButton):
         dpg.add_theme_color(dpg.mvThemeCol_Button, (0, 0, 0, 0))
-        dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (60, 66, 95))
-        dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (41, 74, 122))
+        dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, COLORS["section_hover"])
+        dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, COLORS["accent"])
         dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 4)
-        dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 6, 4)
+        dpg.add_theme_style(dpg.mvStyleVar_FramePadding, *BUTTON_PAD)
+    with dpg.theme(tag=PLAY_THEME), dpg.theme_component(dpg.mvImageButton):
+        dpg.add_theme_color(dpg.mvThemeCol_Button, COLORS["accent"])
+        dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, COLORS["accent_active"])
+        dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, COLORS["accent_active"])
+        dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 4)
+        dpg.add_theme_style(dpg.mvStyleVar_FramePadding, *BUTTON_PAD)
 
 
 def _transport_button(name, tag, tooltip, callback):
@@ -159,77 +271,213 @@ def _transport_button(name, tag, tooltip, callback):
         dpg.add_text(tooltip)
 
 
-def create(playback=None):
-    global _editor, _playback, _shown_playing, _gesture, _size, _available, _time
-    _editor, _gesture, _time = None, None, 0
-    _playback, _shown_playing = playback, False
-    _size, _available = (640, 360), (640, 360)
-    transport_icons.load_textures()
-    _transport_theme()
-    with dpg.child_window(tag=TAG, border=True):
+def _header():
+    with dpg.child_window(tag=HEADER, height=HEADER_H, border=False, no_scrollbar=True,
+                          always_use_window_padding=True):
         with dpg.group(horizontal=True):
-            dpg.add_combo(FPS_CHOICES, default_value="60", width=65,
-                          tag="composition_fps", callback=_fps_changed)
-            dpg.add_text("fps")
-            dpg.add_combo(list(PREVIEW_QUALITIES), default_value="HD (720p)", width=145,
-                          tag="preview_quality", callback=_quality_changed)
-        with dpg.group(horizontal=True):
-            dpg.add_text("Composition", tag="preview_mode")
-            dpg.add_combo(list(FORMATS), default_value="16:9", width=85,
+            dpg.add_text("MONTAGE", tag="preview_mode", color=COLORS["accent_active"])
+            dpg.add_button(label="Voir le montage", tag="composition_show", show=False,
+                           callback=lambda: _call(lambda: _editor.show_montage()))
+            dpg.add_spacer(width=4)
+            dpg.add_combo(list(FORMATS), default_value="16:9", width=80,
                           tag="composition_format", callback=_format_changed)
+            with dpg.tooltip("composition_format"):
+                dpg.add_text("Format de la composition")
             dpg.add_checkbox(label="Recadrer", tag="composition_crop",
                              callback=lambda: _draw_selection())
-        with dpg.group(horizontal=True):
-            dpg.add_button(label="Voir le montage", tag="composition_show",
-                           callback=lambda: _call(lambda: _editor.show_montage()))
-            dpg.add_text("Glissez un média ici")
-        with dpg.group(tag="composition_drop", payload_type="MAKITOP_MEDIA", drop_callback=_drop):
-            dpg.add_drawlist(width=640, height=360, tag=CANVAS)
-        dpg.draw_image(_texture, (0, 0), _size, tag=VIDEO_IMAGE_TAG, parent=CANVAS)
-        with dpg.draw_layer(tag=OVERLAY, parent=CANVAS):
-            pass
-        with dpg.group(horizontal=True) as transport:
-            dpg.bind_item_theme(transport, TRANSPORT_THEME)
-            dpg.add_spacer(width=0, tag=TRANSPORT_SPACER)
+        with dpg.group(horizontal=True, tag=HEADER_RIGHT, pos=(0, BAR_PAD[1])):
+            dpg.add_combo(list(PREVIEW_QUALITIES), default_value="HD (720p)", width=QUALITY_W,
+                          tag="preview_quality", callback=_quality_changed)
+            with dpg.tooltip("preview_quality"):
+                dpg.add_text("Qualité de la prévisualisation")
+            dpg.add_combo(FPS_CHOICES, default_value="60", width=FPS_W,
+                          tag="composition_fps", callback=_fps_changed)
+            dpg.add_text("ips", color=COLORS["label_muted"])
+    dpg.bind_item_theme(HEADER, BAR_THEME)
+
+
+def _viewer():
+    with dpg.child_window(tag=VIEWER, height=PREVIEW_HEIGHT, border=False, no_scrollbar=True):
+        dpg.add_spacer(height=VIEWER_MARGIN, tag=VIEWER_PAD_Y)
+        with dpg.group(horizontal=True, horizontal_spacing=0):
+            dpg.add_spacer(width=VIEWER_MARGIN, tag=VIEWER_PAD_X)
+            with dpg.group(tag="composition_drop", payload_type="MAKITOP_MEDIA",
+                           drop_callback=_drop):
+                dpg.add_drawlist(width=PREVIEW_WIDTH, height=PREVIEW_HEIGHT, tag=CANVAS)
+    dpg.bind_item_theme(VIEWER, VIEWER_THEME)
+    dpg.draw_image(_texture, (0, 0), _size, tag=VIDEO_IMAGE_TAG, parent=CANVAS)
+    with dpg.draw_layer(tag=OVERLAY, parent=CANVAS):
+        pass
+
+
+def _scrubber():
+    with dpg.drawlist(width=_panel[0], height=SCRUB_H, tag=SCRUBBER):
+        dpg.draw_rectangle((0, 2), (_panel[0], SCRUB_H - 2), fill=COLORS["field_bg"],
+                           color=COLORS["field_bg"], tag=SCRUB_TRACK)
+        dpg.draw_rectangle((0, 2), (0, SCRUB_H - 2), fill=COLORS["accent"],
+                           color=COLORS["accent"], tag=SCRUB_FILL)
+        dpg.draw_rectangle((0, 0), (2, SCRUB_H), fill=COLORS["timecode"],
+                           color=COLORS["timecode"], tag=SCRUB_HEAD)
+
+
+def _transport():
+    with dpg.child_window(tag=TRANSPORT, height=TRANSPORT_H, border=False, no_scrollbar=True,
+                          always_use_window_padding=True):
+        dpg.add_text("00:00:00:00", tag=TIME_TEXT_TAG, color=COLORS["timecode"],
+                     pos=(BAR_PAD[0] + 2, TIMECODE_Y))
+        if dpg.does_alias_exist("timecode_font"):
+            dpg.bind_item_font(TIME_TEXT_TAG, "timecode_font")
+        with dpg.group(horizontal=True, tag=TRANSPORT_BUTTONS,
+                       pos=(0, BUTTONS_Y)):
             _transport_button("start", "transport_start", "Aller au début", _go_start)
             _transport_button("stop", "transport_stop", "Arrêter", _stop)
             _transport_button("play", PLAY_BUTTON, "Lecture / Pause", _toggle_play)
             _transport_button("end", "transport_end", "Aller à la fin", _go_end)
-            dpg.add_spacer(width=8)
-            dpg.add_text("00:00", tag=TIME_TEXT_TAG)
-            dpg.add_text("/")
-            dpg.add_text("00:00", tag=FINAL_TIME_TEXT_TAG)
+        dpg.bind_item_theme(TRANSPORT_BUTTONS, TRANSPORT_THEME)
+        dpg.bind_item_theme(PLAY_BUTTON, PLAY_THEME)
+        dpg.add_text("00:00:00:00", tag=FINAL_TIME_TEXT_TAG, color=COLORS["label_muted"],
+                     pos=(0, TOTAL_Y))
+        with dpg.tooltip(FINAL_TIME_TEXT_TAG):
+            dpg.add_text("Durée totale")
+        dpg.add_image_button(transport_icons.texture_tag("fullscreen"), tag=FULLSCREEN_BUTTON,
+                             width=transport_icons.ICON_SIZE, height=transport_icons.ICON_SIZE,
+                             pos=(0, BUTTONS_Y), callback=_toggle_fullscreen)
+        with dpg.tooltip(FULLSCREEN_BUTTON):
+            dpg.add_text("Plein écran (F)", tag=FULLSCREEN_HINT)
+        dpg.bind_item_theme(FULLSCREEN_BUTTON, TRANSPORT_THEME)
+    dpg.bind_item_theme(TRANSPORT, BAR_THEME)
+
+
+def _toggle_fullscreen():
+    if _on_toggle_fullscreen is not None:
+        _on_toggle_fullscreen()
+
+
+def set_fullscreen(on):
+    """Viewer seul : sans en-tête ni marge, icône et infobulle « quitter »."""
+    global _fullscreen
+    _fullscreen = bool(on)
+    dpg.configure_item(HEADER, show=not _fullscreen)
+    dpg.configure_item(FULLSCREEN_BUTTON, texture_tag=transport_icons.texture_tag(
+        "exit_fullscreen" if _fullscreen else "fullscreen"))
+    dpg.set_value(FULLSCREEN_HINT, "Quitter le plein écran (F / Échap)" if _fullscreen
+                  else "Plein écran (F)")
+    _draw_selection()
+
+
+def is_fullscreen():
+    return _fullscreen
+
+
+def create(playback=None, on_toggle_fullscreen=None):
+    global _editor, _playback, _shown_playing, _gesture, _scrubbing, _size, _available
+    global _time, _fps, _shown_time, _scrub_px, _selection_key
+    global _fullscreen, _on_toggle_fullscreen
+    _fullscreen, _on_toggle_fullscreen = False, on_toggle_fullscreen
+    _editor, _gesture, _scrubbing, _time = None, None, False, 0
+    _playback, _shown_playing = playback, False
+    _fps, _shown_time, _scrub_px, _selection_key = 30, None, None, None
+    _size, _available = (PREVIEW_WIDTH, PREVIEW_HEIGHT), (PREVIEW_WIDTH, PREVIEW_HEIGHT)
+    transport_icons.load_textures()
+    _themes()
+    with dpg.child_window(tag=TAG, border=False, no_scrollbar=True):
+        _header()
+        _viewer()
+        _scrubber()
+        _transport()
+    dpg.bind_item_theme(TAG, PANEL_THEME)
     with dpg.item_handler_registry(tag="composition_click_handler"):
         dpg.add_item_clicked_handler(button=dpg.mvMouseButton_Left, callback=_click)
     dpg.bind_item_handler_registry(CANVAS, "composition_click_handler")
+    with dpg.item_handler_registry(tag="scrubber_click_handler"):
+        dpg.add_item_clicked_handler(button=dpg.mvMouseButton_Left, callback=_scrub_click)
+    dpg.bind_item_handler_registry(SCRUBBER, "scrubber_click_handler")
     with dpg.handler_registry(tag="composition_mouse_handlers"):
         dpg.add_mouse_drag_handler(button=dpg.mvMouseButton_Left, threshold=0, callback=_drag)
         dpg.add_mouse_release_handler(button=dpg.mvMouseButton_Left, callback=_release)
 
 
+def _text_width(text, char_width=8.5):
+    """Largeur d'un texte ; estimation tant que la police n'a pas encore été rendue."""
+    try:
+        size = dpg.get_text_size(text)
+    except Exception:
+        size = None
+    return size[0] if size and size[0] > 0 else len(text) * char_width
+
+
 def resize(width, height):
-    global _available, _size
-    _available = (max(40, width - 20), max(40, height - 145))
+    global _panel, _available, _size, _scrub_px
+    _panel = (max(80, int(width)), max(80, int(height)))
+    width, height = _panel
+    header_h, margin = (0, 0) if _fullscreen else (HEADER_H, VIEWER_MARGIN)
+    viewer_h = max(40, height - header_h - SCRUB_H - TRANSPORT_H)
+    _available = (max(40, width - 2 * margin), max(40, viewer_h - 2 * margin))
     ratio = _editor.project.canvas_ratio if _editor else 16 / 9
     w = min(_available[0], _available[1] * ratio)
     _size = (max(1, round(w)), max(1, round(w / ratio)))
+    dpg.configure_item(VIEWER, width=width, height=viewer_h)
+    dpg.configure_item(VIEWER_PAD_X, width=max(0, (width - _size[0]) // 2))
+    dpg.configure_item(VIEWER_PAD_Y, height=max(0, (viewer_h - _size[1]) // 2))
     dpg.configure_item(CANVAS, width=_size[0], height=_size[1])
     dpg.configure_item(VIDEO_IMAGE_TAG, pmax=_size)
-    dpg.configure_item(TRANSPORT_SPACER, width=max(0, (_available[0] - TRANSPORT_WIDTH) // 2))
+    # En-tête : qualité + fps alignés à droite.
+    right_w = QUALITY_W + FPS_W + 2 * ITEM_SPACING + _text_width("ips")
+    dpg.configure_item(HEADER_RIGHT, pos=(max(0, int(width - BAR_PAD[0] - right_w)),
+                                          BAR_PAD[1]))
+    # Barre de progression sur toute la largeur.
+    dpg.configure_item(SCRUBBER, width=width)
+    dpg.configure_item(SCRUB_TRACK, pmax=(width, SCRUB_H - 2))
+    _scrub_px = None
+    _sync_scrubber()
+    # Transport : boutons centrés ; à droite, la durée totale puis le bouton plein écran.
+    dpg.configure_item(TRANSPORT_BUTTONS, pos=(max(0, (width - BUTTONS_W) // 2), BUTTONS_Y))
+    fullscreen_x = max(0, width - BAR_PAD[0] - BUTTON_W)
+    dpg.configure_item(FULLSCREEN_BUTTON, pos=(fullscreen_x, BUTTONS_Y))
+    total_w = _text_width(dpg.get_value(FINAL_TIME_TEXT_TAG) or "00:00:00:00")
+    dpg.configure_item(FINAL_TIME_TEXT_TAG,
+                       pos=(max(0, int(fullscreen_x - 2 * ITEM_SPACING - total_w)), TOTAL_Y))
     _draw_selection()
 
 
 def refresh():
+    global _fps, _shown_time
     if _editor is None:
         return
     dpg.set_value("composition_format", _editor.project.canvas_format)
     playing_project = _editor.playback.project or _editor.project
-    dpg.set_value("composition_fps", str(playing_project.timeline.fps))
+    _fps = playing_project.timeline.fps
+    _shown_time = None
+    dpg.set_value("composition_fps", str(_fps))
     dpg.configure_item("composition_fps", enabled=not _editor.source_mode)
-    dpg.set_value("preview_mode", "Source" if _editor.source_mode else "Montage")
+    dpg.set_value("preview_mode", "SOURCE" if _editor.source_mode else "MONTAGE")
+    dpg.configure_item("composition_show", show=_editor.source_mode)
     initFinalTime(_editor.playback.duration)
-    resize(_available[0] + 20, _available[1] + 145)
+    resize(*_panel)
 
+
+# --- Barre de progression -------------------------------------------------------
+
+def _mouse_scrub():
+    """Position de la souris sur la barre de progression, entre 0 et 1."""
+    mx, _ = dpg.get_mouse_pos(local=False)
+    x, _ = dpg.get_item_rect_min(SCRUBBER)
+    return min(1.0, max(0.0, (mx - x) / max(1, _panel[0])))
+
+
+def _seek_to_mouse():
+    if _playback is not None and _duration() > 0:
+        ratio = _mouse_scrub()
+        _call(lambda: _playback.seek(ratio * _playback.duration))
+
+
+def _scrub_click():
+    global _scrubbing
+    _scrubbing = True
+    _seek_to_mouse()
+
+
+# --- Cadre de composition -------------------------------------------------------
 
 def _bounds(clip):
     return fitted_bounds(clip.transform_at(_time - clip.timeline_start),
@@ -246,18 +494,33 @@ def _handles(bounds):
             "bottom_left": (x, y + h), "bottom_right": (x + w, y + h)}
 
 
+def _is_empty():
+    """Montage sans aucun clip : on invite à glisser un média dans le cadre."""
+    if _editor is None:
+        return True
+    return not _editor.source_mode and not _editor.project.timeline.clips
+
+
 def _draw_selection():
     global _selection_key
     clip = _editor.selected if _editor is not None and not _editor.source_mode else None
     if clip is not None and not (clip.timeline_start <= _time < clip.timeline_end):
         clip = None
     bounds = _bounds(clip) if clip is not None else None
-    key = (_size, bounds, dpg.get_value("composition_crop"))
+    empty = _is_empty()
+    key = (_size, bounds, dpg.get_value("composition_crop"), empty, _fullscreen)
     if key == _selection_key:
         return
     _selection_key = key
     dpg.delete_item(OVERLAY, children_only=True)
-    dpg.draw_rectangle((0, 0), _size, color=(110, 115, 125, 255), parent=OVERLAY)
+    if _fullscreen:  # visionnage seul : ni cadre, ni poignées
+        return
+    dpg.draw_rectangle((0, 0), _size, color=COLORS["viewer_frame"], parent=OVERLAY)
+    if empty:
+        tw = _text_width(DROP_HINT, 7.5)
+        dpg.draw_text(((_size[0] - tw) / 2, _size[1] / 2 - 8), DROP_HINT, size=15,
+                      color=COLORS["label_muted"], parent=OVERLAY)
+        return
     if _editor is None or _editor.source_mode:
         return
     if clip is None:
@@ -280,7 +543,7 @@ def _mouse():
 
 def _click():
     global _gesture
-    if _editor is None or _editor.source_mode:
+    if _editor is None or _editor.source_mode or _fullscreen:
         return
     point = _mouse()
     selected = _editor.selected
@@ -306,6 +569,9 @@ def _click():
 
 
 def _drag():
+    if _scrubbing:
+        _seek_to_mouse()
+        return
     if _gesture is None or _editor is None:
         return
     clip_id, original, bounds, origin, mode, handle = _gesture
@@ -322,8 +588,8 @@ def _drag():
 
 
 def _release():
-    global _gesture
-    _gesture = None
+    global _gesture, _scrubbing
+    _gesture, _scrubbing = None, False
 
 
 def _drop(sender, app_data):

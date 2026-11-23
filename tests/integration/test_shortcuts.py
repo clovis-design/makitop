@@ -56,7 +56,7 @@ def test_raccourcis_bloques_pendant_une_fenetre_modale(context, monkeypatch):
     calls = []
     blocked = [True]
     shortcuts.install(_actions(calls), blocked=lambda: blocked[0])
-    monkeypatch.setattr(shortcuts, "_ctrl_down", lambda: True)
+    monkeypatch.setattr(shortcuts, "ctrl_down", lambda: True)
     handler = dpg.get_item_children(shortcuts.HANDLER_TAG, 1)[0]
     on_key = dpg.get_item_callback(handler)
     on_key(None, dpg.mvKey_S)

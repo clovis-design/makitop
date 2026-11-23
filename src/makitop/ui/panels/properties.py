@@ -399,6 +399,24 @@ def _refresh_geometry(t) -> None:
         dpg.set_value(f"clip_crop_{side}", getattr(t, f"crop_{side}") * 100)
 
 
+def _subtitle(clip) -> str:
+    media = clip.media
+    parts = [_KINDS.get(media.kind, "Média")]
+    if media.width and media.height:
+        parts.append(f"{media.width}×{media.height}")
+    parts.append(f"{clip.duration:.1f} s")
+    return "  ·  ".join(parts)
+
+
+def _refresh_geometry(t) -> None:
+    cx, cy = center_offset(t)
+    dpg.set_value("clip_zoom", t.width * 100)
+    dpg.set_value("clip_pos_x", cx * 100)
+    dpg.set_value("clip_pos_y", cy * 100)
+    for side, _ in _CROP_SIDES:
+        dpg.set_value(f"clip_crop_{side}", getattr(t, f"crop_{side}") * 100)
+
+
 def _scale(spec) -> float:
     return 100 if spec.unit == "%" else 1
 

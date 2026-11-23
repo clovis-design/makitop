@@ -1070,6 +1070,17 @@ def _draw_keyframes():
                       fill=color, color=(245, 245, 255, 255), parent=_STATIC_LAYER,
                       tag=f"keyframe_{clip.id}_{key.property}_{key.time}")
 
+        if getattr(clip, "effects", ()) and w >= 24:
+            # Badge « fx » : le clip porte au moins un effet.
+            bx = x + w - 22
+            dpg.draw_rectangle(
+                (bx, clip_y + 3), (bx + 19, clip_y + 16),
+                fill=_COLOR_FX_BADGE, color=(0, 0, 0, 0), rounding=3,
+                parent=_STATIC_LAYER,
+            )
+            dpg.draw_text((bx + 4, clip_y + 3), "fx", color=_COLOR_CLIP_TEXT, size=12,
+                          parent=_STATIC_LAYER)
+
 
 def _draw_playhead() -> None:
     x = int(_playhead_sec * _px_per_sec)
