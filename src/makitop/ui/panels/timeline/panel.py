@@ -109,12 +109,24 @@ def create() -> None:
     with dpg.child_window(tag=TAG, border=True):
         # ── Barre d'outils ────────────────────────────────────────────────────
         with dpg.group(horizontal=True, tag=_TOOLBAR_TAG):
-            dpg.add_button(label="-", width=24, height=22, callback=_zoom_out)
-            dpg.add_button(label="+", width=24, height=22, callback=_zoom_in)
+            dpg.add_button(label="-", tag="timeline_zoom_out", width=24, height=22,
+                           callback=_zoom_out)
+            with dpg.tooltip("timeline_zoom_out"):
+                dpg.add_text("Zoom arrière  [Ctrl+-]")
+            dpg.add_button(label="+", tag="timeline_zoom_in", width=24, height=22,
+                           callback=_zoom_in)
+            with dpg.tooltip("timeline_zoom_in"):
+                dpg.add_text("Zoom avant  [Ctrl++]")
+            dpg.add_separator()
+            dpg.add_button(label="Supprimer", tag="timeline_delete_clip", enabled=False,
+                           callback=delete_selected)
+            with dpg.tooltip("timeline_delete_clip"):
+                dpg.add_text("Supprimer le clip sélectionné  [Suppr]")
+            dpg.add_separator()
             dpg.add_checkbox(label="Images clés", default_value=True,
                              tag="timeline_show_keyframes", callback=_toggle_keyframes)
             with dpg.tooltip("timeline_show_keyframes"):
-                dpg.add_text("Afficher les lignes d'animation du clip sélectionné.")
+                dpg.add_text("Afficher/masquer les images clés  [Ctrl+K]")
         dpg.add_separator()
 
         # ── Zone principale : labels (fixe) + timeline (scrollable) ───────────
@@ -276,7 +288,14 @@ def set_selected(clip_id: str | None, keyframe=None) -> None:
     global _selected_clip, _selected_keyframe
     _selected_clip = next((c for c in _all_clips() if c.id == clip_id), None) if clip_id else None
     _selected_keyframe = keyframe
+    if dpg.does_item_exist("timeline_delete_clip"):
+        dpg.configure_item("timeline_delete_clip", enabled=_selected_clip is not None)
     _redraw()
+
+
+def delete_selected() -> None:
+    if _selected_clip is not None and _on_delete is not None:
+        _on_delete(_selected_clip)
 
 
 def set_playhead(seconds: float) -> None:
@@ -505,6 +524,21 @@ def _zoom_in() -> None:
 def _zoom_out() -> None:
     if _zoom_idx > 0:
         _set_zoom_index(_zoom_idx - 1)
+
+
+def zoom_in() -> None:
+    _zoom_in()
+
+
+def zoom_out() -> None:
+    _zoom_out()
+
+
+def toggle_keyframes() -> None:
+    if dpg.does_item_exist("timeline_show_keyframes"):
+        new_val = not dpg.get_value("timeline_show_keyframes")
+        dpg.set_value("timeline_show_keyframes", new_val)
+        _toggle_keyframes(None, new_val)
 
 
 # ── Taille ────────────────────────────────────────────────────────────────────

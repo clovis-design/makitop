@@ -216,7 +216,7 @@ def create(
                 callback=lambda: _on_add_media() if _on_add_media else None,
             )
             with dpg.tooltip(_ADD_BUTTON_TAG):
-                dpg.add_text("Ajouter des médias")
+                dpg.add_text("Ajouter des médias [Ctrl+I]")
         # Le séparateur ignore l'indentation, ce qui donne un bel effet "bord à bord" moderne
         dpg.add_separator(indent=16)
         
