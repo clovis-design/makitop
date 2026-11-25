@@ -557,7 +557,7 @@ def _is_empty():
     """Montage sans aucun clip : on invite à glisser un média dans le cadre."""
     if _editor is None:
         return True
-    return not _editor.source_mode and not _editor.project.timeline.clips
+    return not _editor.project.timeline.clips
 
 
 def _draw_selection():
