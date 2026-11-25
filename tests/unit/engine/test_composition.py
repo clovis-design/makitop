@@ -123,6 +123,17 @@ def test_vertical_mirror_and_combination(horizontal):
     np.testing.assert_array_equal(canvas, expected)
 
 
+def test_stretch_uses_width_and_height_without_source_ratio():
+    source = np.full((10, 10, 3), 255, dtype=np.uint8)
+    canvas = np.zeros((12, 24, 3), dtype=np.uint8)
+    TimelineRenderer._composite(
+        canvas, source, Transform(x=0.25, y=0.25, width=0.5, height=0.5, stretch=True),
+    )
+    expected = np.zeros_like(canvas)
+    expected[3:9, 6:18] = 255
+    np.testing.assert_array_equal(canvas, expected)
+
+
 def test_photo_orientation_matches_selection_geometry(tmp_path):
     path = tmp_path / "portrait.jpg"
     image = Image.new("RGB", (80, 40), (255, 0, 0))

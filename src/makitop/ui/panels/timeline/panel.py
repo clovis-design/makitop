@@ -84,6 +84,7 @@ _selected_clip: BaseClip | None = None
 _pending_fit_zoom: bool = False
 _show_keyframes = False
 _selected_keyframe = None
+_transition_spans = ()
 _drag_keyframe = None  # (propriété, temps initial, temps provisoire)
 _on_key_select = None
 _on_key_move = None
@@ -99,10 +100,11 @@ def create() -> None:
     global _zoom_idx, _px_per_sec, _tracks, _playhead_sec
     global _dragging, _drag_clip, _drag_offset_px, _drag_source_row, _drag_start_time, _selected_clip
     global _on_delete, _on_clip_moved, _on_track_reordered, _on_select, _on_zoom, _pending_fit_zoom
-    global _show_keyframes, _selected_keyframe, _drag_keyframe
+    global _show_keyframes, _selected_keyframe, _drag_keyframe, _transition_spans
     global _on_key_select, _on_key_move
     _show_keyframes = False
     _selected_keyframe = _drag_keyframe = None
+    _transition_spans = ()
     _on_key_select = _on_key_move = None
     _zoom_idx = _DEFAULT_ZOOM_IDX
     _px_per_sec = _ZOOM_LEVELS[_DEFAULT_ZOOM_IDX]
@@ -252,11 +254,11 @@ def _insert_clip(clip: BaseClip) -> None:
     _tracks.append([clip])
 
 
-def set_clips(clips, selected_id, selected_keyframe) -> None:
+def set_clips(clips, selected_id, selected_keyframe, spans=()) -> None:
     _tracks.clear()
     for clip in clips:
         _insert_clip(clip)
-    set_selected(selected_id, selected_keyframe)
+    set_selected(selected_id, selected_keyframe, spans)
 
 
 def clear() -> None:
@@ -460,10 +462,11 @@ def set_zoom(pixels_per_second: int) -> None:
     _redraw()
 
 
-def set_selected(clip_id: str | None, keyframe=None) -> None:
-    global _selected_clip, _selected_keyframe
+def set_selected(clip_id: str | None, keyframe=None, spans=()) -> None:
+    global _selected_clip, _selected_keyframe, _transition_spans
     _selected_clip = next((c for c in _all_clips() if c.id == clip_id), None) if clip_id else None
     _selected_keyframe = keyframe
+    _transition_spans = spans
     for tag in ("timeline_delete_clip", "timeline_duplicate_clip",
                 "timeline_copy_clip", "timeline_cut_clip"):
         if dpg.does_item_exist(tag):
@@ -1184,7 +1187,25 @@ def _draw_clips() -> None:
                 )
 
             _draw_clip_badges(clip, x, clip_y, w)
+    _draw_transition_spans()
     _draw_keyframes()
+
+
+def _draw_transition_spans():
+    for span in _transition_spans:
+        row = next((i for i, clips in enumerate(_tracks)
+                    if any(clip.id == span.incoming.id for clip in clips)), None)
+        if row is None:
+            continue
+        y = _row_top(row) + _TRACK_H - 15
+        x0, x1 = span.start * _px_per_sec, span.end * _px_per_sec
+        x1 = max(x0 + 4, x1)
+        dpg.draw_rectangle((x0, y), (x1, y + 11), fill=(222, 152, 88, 240),
+                           color=(255, 210, 150, 255), rounding=2, parent=_STATIC_LAYER,
+                           tag=f"timeline_transition_{span.incoming.id}")
+        if x1 - x0 >= 16:
+            dpg.draw_text((x0 + 4, y - 1), "T", color=(35, 27, 24, 255), size=11,
+                          parent=_STATIC_LAYER)
 
 
 def _draw_clip_badges(clip: BaseClip, x: int, y: int, width: int) -> None:

@@ -85,10 +85,25 @@ class TimelineAudioRenderer:
     def render(self, project, start, count):
         result = np.zeros((count, 2), dtype=np.float32)
         active = set()
+        spans = project.timeline.transition_spans()
+        entering = {span.incoming.id: span for span in spans}
+        leaving = {span.outgoing.id: span for span in spans}
         for clip in project.timeline.clips:
             clip_start = round(clip.timeline_start * SAMPLE_RATE)
-            left = max(start, clip_start)
-            right = min(start + count, round(clip.timeline_end * SAMPLE_RATE))
+            in_span, out_span = entering.get(clip.id), leaving.get(clip.id)
+            first, last = clip_start, round(clip.timeline_end * SAMPLE_RATE)
+            if isinstance(clip, MediaClip) and (in_span or out_span):
+                if in_span:
+                    first = min(first, round(in_span.start * SAMPLE_RATE))
+                if out_span:
+                    last = max(last, round(out_span.end * SAMPLE_RATE))
+                source_start = round(clip.source_start * SAMPLE_RATE)
+                first = max(first, clip_start + int(np.ceil(-source_start / clip.speed)))
+                if clip.media.duration is not None:
+                    source_remaining = clip.media.duration - clip.source_start
+                    remaining_samples = round(source_remaining * SAMPLE_RATE / clip.speed)
+                    last = min(last, clip_start + remaining_samples)
+            left, right = max(start, first), min(start + count, last)
             if right <= left:
                 continue
             region = slice(left - start, right - start)
@@ -100,16 +115,24 @@ class TimelineAudioRenderer:
                 if clip.id not in self.decoders:
                     self.decoders[clip.id] = AudioDecoder(clip.media.path)
                 samples = _read_clip_audio(self.decoders[clip.id], clip,
-                                           left - clip_start, right - left)
+                                           left - clip_start, right - left,
+                                           handles=bool(in_span or out_span))
                 points = curve(clip.keyframes, "volume")
-                if points:
+                if points or in_span or out_span:
                     # Enveloppe par échantillon, indépendante des blocs de lecture/export.
                     times = (np.arange(left, right) - clip_start) / SAMPLE_RATE
-                    gain = np.interp(times, [k.time for k in points], [k.value for k in points])
+                    gain = (np.interp(times, [k.time for k in points], [k.value for k in points])
+                            if points else np.full(right - left, clip.volume))
                     for a, b in pairwise(points):
                         if a.interpolation != "linear":
                             mask = (times >= a.time) & (times < b.time)
                             gain[mask] = interpolate(a, b, times[mask])
+                    absolute = np.arange(left, right) / SAMPLE_RATE
+                    if in_span:
+                        gain *= np.clip(in_span.progress(absolute), 0, 1)
+                    if out_span:
+                        within = absolute < out_span.suppress_until
+                        gain[within] *= 1 - np.clip(out_span.progress(absolute[within]), 0, 1)
                     result[region] += samples * gain[:, None]
                 else:
                     result[region] += samples * clip.volume
@@ -123,12 +146,18 @@ class TimelineAudioRenderer:
         self.decoders.clear()
 
 
-def _read_clip_audio(decoder, clip, offset, count):
+def _read_clip_audio(decoder, clip, offset, count, *, handles=False):
     source = round(clip.source_start * SAMPLE_RATE)
     if clip.speed == 1:
         return decoder.read(source + offset, count)
-    last = max(source, round(clip.source_end * SAMPLE_RATE) - 1)
-    positions = np.minimum(source + (offset + np.arange(count)) * clip.speed, last)
+    minimum = 0 if handles else source
+    positions = source + (offset + np.arange(count)) * clip.speed
+    if handles:
+        last = (int(positions[-1]) + _READ_OVERLAP if clip.media.duration is None else
+                max(0, round(clip.media.duration * SAMPLE_RATE) - 1))
+    else:
+        last = max(source, round(clip.source_end * SAMPLE_RATE) - 1)
+    positions = np.clip(positions, minimum, last)
     indices = positions.astype(np.int64)
     if clip.speed < 1:
         first, end = indices[0], min(last, indices[-1] + 1)
@@ -143,7 +172,7 @@ def _read_clip_audio(decoder, clip, offset, count):
     distance = positions[:, None] - taps
     weights = np.sinc(distance / clip.speed) * np.sinc(distance / radius)
     weights /= weights.sum(axis=1, keepdims=True)
-    taps = np.clip(taps, source, last)
+    taps = np.clip(taps, minimum, last)
     first, end = taps[0, 0], taps[-1, -1]
     data = decoder.read(first, end - first + 1)
     return np.einsum("ij,ijk->ik", weights.astype(np.float32), data[taps - first])

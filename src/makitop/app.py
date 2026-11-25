@@ -17,10 +17,12 @@ from makitop.ui import home, main_window, menu_bar, screens, shortcuts, title_ba
 from makitop.ui.assets.style import COLORS, LOGO
 from makitop.ui.dialogs import import_media, message, project_file
 from makitop.ui.dialogs.export_video import ExportDialog
+from makitop.ui.native_cursor import NativeCursor
 from makitop.ui.panels import effects as effects_panel
 from makitop.ui.panels import media as media_panel
 from makitop.ui.panels import preview, properties, text_presets
 from makitop.ui.panels import timeline as timeline_panel
+from makitop.ui.panels import transitions as transitions_panel
 
 TITLE = f"Makitop {__version__}"
 DEFAULT_WIDTH = 1660
@@ -37,6 +39,7 @@ def main() -> None:
     importer = MediaImporter(lambda: session.project, executor)
     playback_controller = TimelinePlaybackController()
     editor = CompositionEditor(session, playback_controller)
+    native_cursor = None
 
     def refresh_editor():
         preview.refresh()
@@ -166,6 +169,7 @@ def main() -> None:
         properties.bind(editor, composition_error)
         timeline_panel.bind(editor, composition_error)
         effects_panel.bind(apply_effect)
+        transitions_panel.bind(properties.apply_transition)
         editor.on_refresh = refresh_editor
         editor.show_montage(0)
         project_file.create(session)
@@ -210,6 +214,7 @@ def main() -> None:
         dpg.setup_dearpygui()
         dpg.show_viewport()
         title_bar.setup_window(win32_window.find_hwnd(TITLE))
+        native_cursor = NativeCursor.load()
         _poll_error_shown = False
         show_home()
         while dpg.is_dearpygui_running():
@@ -233,14 +238,26 @@ def main() -> None:
                     _poll_error_shown = True
                     message.show("Lecture impossible", str(exc))
 
-            if not export_dialog.blocks_editor():
+            editor_blocked = export_dialog.blocks_editor()
+            if not editor_blocked:
                 timeline_panel.tick()
                 media_panel.tick()
                 text_presets.tick()
             export_dialog.tick()
+            cue = (
+                preview.pointer_cue()
+                if native_cursor and not editor_blocked and not screens.home_shown() else None
+            )
+            if native_cursor:
+                if cue is None:
+                    native_cursor.reset()
+                else:
+                    native_cursor.apply(cue)
             dpg.render_dearpygui_frame()
 
     finally:
+        if native_cursor is not None:
+            native_cursor.close()
         if export_dialog is not None:
             export_dialog.close()
         executor.shutdown(wait=True, cancel_futures=True)

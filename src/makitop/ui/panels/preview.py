@@ -517,14 +517,18 @@ def _rotate_point(point, center, angle):
     return rotate_point(point, center, angle, _size[0] / _size[1])
 
 
-def _handles(bounds, crop, rotation=0):
+_SIDE_HANDLES = {"left", "right", "top", "bottom"}
+
+
+def _handles(bounds, crop, rotation=0, *, corners_only=False):
     x, y, w, h = bounds
-    if crop:
-        points = {"left": (x, y + h / 2), "right": (x + w, y + h / 2),
-                  "top": (x + w / 2, y), "bottom": (x + w / 2, y + h)}
-    else:
-        points = {"top_left": (x, y), "top_right": (x + w, y),
-                  "bottom_right": (x + w, y + h), "bottom_left": (x, y + h)}
+    points = {}
+    if not crop or corners_only:
+        points.update(top_left=(x, y), top_right=(x + w, y),
+                      bottom_right=(x + w, y + h), bottom_left=(x, y + h))
+    if not corners_only:
+        points.update(left=(x, y + h / 2), right=(x + w, y + h / 2),
+                      top=(x + w / 2, y), bottom=(x + w / 2, y + h))
     center = _bounds_center(bounds)
     return {name: _rotate_point(point, center, rotation) for name, point in points.items()}
 
@@ -589,12 +593,16 @@ def _draw_selection():
         return
     sw, sh = _size
     color = (245, 180, 60, 255) if crop else (80, 180, 255, 255)
-    corners = _handles(bounds, False, rotation).values()
+    corners = _handles(bounds, False, rotation, corners_only=True).values()
     dpg.draw_polygon([(px * sw, py * sh) for px, py in corners],
                      color=color, thickness=2, parent=OVERLAY)
-    for hx, hy in _handles(bounds, crop, rotation).values():
-        dpg.draw_rectangle((hx * sw - 5, hy * sh - 5), (hx * sw + 5, hy * sh + 5),
-                           fill=color, color=(255, 255, 255, 255), parent=OVERLAY)
+    for name, (hx, hy) in _handles(bounds, crop, rotation).items():
+        edge_resize = not crop and name in _SIDE_HANDLES
+        size = 4 if edge_resize else 5
+        fill = (140, 225, 250, 255) if edge_resize else color
+        dpg.draw_rectangle((hx * sw - size, hy * sh - size), (hx * sw + size, hy * sh + size),
+                           fill=fill, color=(255, 255, 255, 255), parent=OVERLAY,
+                           tag=f"preview_handle_{name}")
     handle = _rotation_handle(bounds, rotation) if can_rotate else None
     if handle is not None:
         (ax, ay), (hx, hy) = handle
@@ -609,14 +617,11 @@ def _mouse():
     return (mx - x) / _size[0], (my - y) / _size[1]
 
 
-def _click():
-    global _gesture
-    if _editor is None or _fullscreen:
-        return
-    point = _mouse()
+def _target_at(point):
+    """Même zone de prise pour le survol et le clic."""
     selected = _editor.selected
-    handle = "move"
-    if selected is not None and selected in _editor.project.timeline.clips_at(_time):
+    clips = _editor.project.timeline.clips_at(_time)
+    if selected is not None and selected in clips:
         bounds = _bounds(selected)
         crop = _crop_enabled(selected)
         rotation = _rotation(selected)
@@ -626,26 +631,86 @@ def _click():
         )
         if rotation_handle is not None:
             handles = {"rotate": rotation_handle[1], **handles}
-        for name, (x, y) in handles.items():
-            if math.hypot((point[0] - x) * _size[0], (point[1] - y) * _size[1]) <= 9:
-                handle = name
-                break
-    if handle == "move":
-        selected = None
-        for clip in reversed(_editor.project.timeline.clips_at(_time)):
-            bounds = _bounds(clip)
-            x, y, w, h = bounds
-            px, py = _rotate_point(point, _bounds_center(bounds), -_rotation(clip))
-            if x <= px <= x + w and y <= py <= y + h:
-                selected = clip
-                break
+        distance, nearest = min(
+            (math.hypot((point[0] - x) * _size[0], (point[1] - y) * _size[1]), name)
+            for name, (x, y) in handles.items()
+        )
+        if distance <= 9:
+            return selected, nearest
+        # Les bords entiers se comportent comme leurs poignées centrales.
+        x, y, w, h = bounds
+        px, py = _rotate_point(point, _bounds_center(bounds), -rotation)
+        sw, sh = _size
+        edges = []
+        if x <= px <= x + w:
+            edges.extend(((abs(py - y) * sh, "top"), (abs(py - y - h) * sh, "bottom")))
+        if y <= py <= y + h:
+            edges.extend(((abs(px - x) * sw, "left"), (abs(px - x - w) * sw, "right")))
+        if edges:
+            distance, nearest = min(edges)
+            if distance <= 5:
+                return selected, nearest
+    for clip in reversed(clips):
+        bounds = _bounds(clip)
+        x, y, w, h = bounds
+        px, py = _rotate_point(point, _bounds_center(bounds), -_rotation(clip))
+        if x <= px <= x + w and y <= py <= y + h:
+            return clip, "move"
+    return None, None
+
+
+def _gesture_cue(mode, handle, bounds, rotation):
+    if handle in ("move", "rotate"):
+        return handle, 0
+    if handle in ("left", "right"):
+        angle = 0
+    elif handle in ("top", "bottom"):
+        angle = 90
+    else:
+        _, _, w, h = bounds
+        angle = math.degrees(math.atan2(h * _size[1], w * _size[0]))
+        if handle in ("top_right", "bottom_left"):
+            angle = -angle
+    return mode, round((angle + rotation) % 180, 1)
+
+
+def pointer_cue():
+    can_seek = _duration() > 0
+    if can_seek and _scrubbing:
+        return "seek", 0
+    if (_gesture is not None and _editor is not None
+            and not _fullscreen):
+        clip_id, original, bounds, _, mode, handle, _ = _gesture
+        if _editor.selected_id == clip_id:
+            return _gesture_cue(mode, handle, bounds, original.rotation)
+    if dpg.is_mouse_button_down(dpg.mvMouseButton_Left):
+        return None
+    if can_seek and dpg.is_item_hovered(SCRUBBER):
+        return "seek", 0
+    if _editor is None or _fullscreen:
+        return None
+    if not dpg.is_item_hovered(CANVAS):
+        return None
+    clip, handle = _target_at(_mouse())
+    if clip is None:
+        return None
+    mode = "crop" if _crop_enabled(clip) else "resize"
+    return _gesture_cue(mode, handle, _bounds(clip), _rotation(clip))
+
+
+def _click():
+    global _gesture
+    if _editor is None or _fullscreen:
+        return
+    point = _mouse()
+    selected, handle = _target_at(point)
     _editor.select(selected.id if selected else None)
     if selected:
         _editor.playback.pause()
         time = _time - selected.timeline_start
-        text_box = selected.unzoomed_transform_at(time) if isinstance(selected, TextClip) else None
+        raw_box = selected.unzoomed_transform_at(time)
         _gesture = (selected.id, selected.transform_at(time), _bounds(selected), point,
-                    "crop" if _crop_enabled(selected) else "resize", handle, text_box)
+                    "crop" if _crop_enabled(selected) else "resize", handle, raw_box)
 
 
 def _drag():
@@ -654,7 +719,7 @@ def _drag():
         return
     if _gesture is None or _editor is None:
         return
-    clip_id, original, bounds, origin, mode, handle, text_box = _gesture
+    clip_id, original, bounds, origin, mode, handle, raw_box = _gesture
     point = _mouse()
 
     def apply():
@@ -681,12 +746,20 @@ def _drag():
                                    _editor.project.canvas_ratio)
         if mirrored_crop:
             transform = _swap_mirrored_crop(transform)
-        if rotated_resize:
+        if rotated_resize and transform is not base:
             # Ancrer le coin opposé dans le repère tourné, comme dans le cadre droit.
             center = _bounds_center((transform.x, transform.y, transform.width, transform.height))
             cx, cy = _rotate_point(center, _bounds_center(bounds), original.rotation)
             transform = replace(transform, x=transform.x + cx - center[0],
                                 y=transform.y + cy - center[1])
+        text_box = raw_box if isinstance(clip, TextClip) else None
+        if mode == "resize" and handle in _SIDE_HANDLES:
+            if text_box is not None:
+                transform = replace(transform, stretch=text_box.stretch)
+            if any(key.property == "zoom" for key in clip.keyframes):
+                if transform != clip.transform_at(time):
+                    _editor.resize_animated_box(transform, original.width / raw_box.width)
+                return
         if text_box is not None and handle == "move":
             transform = replace(text_box,
                                 x=max(-8, min(8, text_box.x + transform.x - original.x)),
