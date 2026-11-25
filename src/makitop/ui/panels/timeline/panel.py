@@ -5,6 +5,8 @@ import dearpygui.dearpygui as dpg
 from makitop.media.thumbnails import THUMB_H, THUMB_W
 from makitop.model.keyframes import PROPERTIES
 from makitop.model.timeline import BaseClip, TextClip
+from makitop.ui.assets.style import COLORS
+from makitop.ui.panels.timeline import icons
 
 TAG = "timeline_panel"
 CURSOR = "timeline_cursor"
@@ -15,6 +17,9 @@ SELECTION = "timeline_selection"
 
 # ── Tags ──────────────────────────────────────────────────────────────────────
 _TOOLBAR_TAG = "timeline_toolbar"
+_TOOLBAR_THEME = "timeline_toolbar_theme"
+_TOGGLE_ON_THEME = "timeline_toggle_on_theme"
+_KEYFRAMES_BUTTON = "timeline_show_keyframes"
 _MAIN_GROUP_TAG = "timeline_main_group"
 _HEADERS_TAG = "timeline_headers"
 _SCROLL_TAG = "timeline_scroll"
@@ -113,6 +118,8 @@ def create() -> None:
     _on_zoom = None
     _pending_fit_zoom = False
 
+    icons.load_textures()
+    _toolbar_theme()
     with dpg.item_handler_registry(tag=_HANDLER_TAG):
         dpg.add_item_resize_handler(callback=_on_resize)
 
@@ -120,56 +127,36 @@ def create() -> None:
         # ── Barre d'outils ────────────────────────────────────────────────────
         with dpg.group(horizontal=True, tag=_TOOLBAR_TAG):
             # ── Bloc 1 : Zoom ──────────────────────────────────────────────────
-            dpg.add_button(label="-", tag="timeline_zoom_out", width=24, height=22,
-                           callback=_zoom_out)
-            with dpg.tooltip("timeline_zoom_out"):
-                dpg.add_text("Zoom arrière  [Ctrl+-]")
-            dpg.add_button(label="+", tag="timeline_zoom_in", width=24, height=22,
-                           callback=_zoom_in)
-            with dpg.tooltip("timeline_zoom_in"):
-                dpg.add_text("Zoom avant  [Ctrl++]")
+            _icon_button("zoom_out", "timeline_zoom_out", "Zoom arrière  [Ctrl+-]", _zoom_out)
+            _icon_button("zoom_in", "timeline_zoom_in", "Zoom avant  [Ctrl++]", _zoom_in)
             dpg.add_separator()
             # ── Bloc 2 : Presse-papier & sélection ────────────────────────────
-            dpg.add_button(label="Copier", tag="timeline_copy_clip", enabled=False,
-                           callback=_copy_selected)
-            with dpg.tooltip("timeline_copy_clip"):
-                dpg.add_text("Copier le clip sélectionné  [Ctrl+C]")
-            dpg.add_button(label="Coller", tag="timeline_paste_clip",
-                           callback=_paste_clip)
-            with dpg.tooltip("timeline_paste_clip"):
-                dpg.add_text("Coller le clip copié au playhead  [Ctrl+V]")
-            dpg.add_button(label="Couper", tag="timeline_cut_clip",
-                           enabled=False, callback=_cut_selected)
-            with dpg.tooltip("timeline_cut_clip"):
-                dpg.add_text("Couper le clip sélectionné  [Ctrl+X]")
-            dpg.add_button(label="Dupliquer", tag="timeline_duplicate_clip", enabled=False,
-                           callback=_duplicate_selected)
-            with dpg.tooltip("timeline_duplicate_clip"):
-                dpg.add_text("Dupliquer le clip sélectionné  [Ctrl+D]")
-            dpg.add_button(label="Supprimer", tag="timeline_delete_clip", enabled=False,
-                           callback=delete_selected)
-            with dpg.tooltip("timeline_delete_clip"):
-                dpg.add_text("Supprimer le clip sélectionné  [Suppr]")
+            _icon_button("copy", "timeline_copy_clip",
+                         "Copier le clip sélectionné  [Ctrl+C]", _copy_selected, enabled=False)
+            _icon_button("paste", "timeline_paste_clip",
+                         "Coller le clip copié au playhead  [Ctrl+V]", _paste_clip)
+            _icon_button("cut", "timeline_cut_clip",
+                         "Couper le clip sélectionné  [Ctrl+X]", _cut_selected, enabled=False)
+            _icon_button("duplicate", "timeline_duplicate_clip",
+                         "Dupliquer le clip sélectionné  [Ctrl+D]", _duplicate_selected,
+                         enabled=False)
+            _icon_button("delete", "timeline_delete_clip",
+                         "Supprimer le clip sélectionné  [Suppr]", delete_selected,
+                         enabled=False)
             dpg.add_separator()
             # ── Bloc 3 : Outils timeline ───────────────────────────────────────
-            dpg.add_button(label="Découper", tag="timeline_split_clip",
-                           callback=_split_at_playhead)
-            with dpg.tooltip("timeline_split_clip"):
-                dpg.add_text("Découper le clip à la position de lecture  [Ctrl+B]")
+            _icon_button("split", "timeline_split_clip",
+                         "Découper le clip à la position de lecture  [Ctrl+B]",
+                         _split_at_playhead)
             dpg.add_separator()
-            dpg.add_button(label="↩ Annuler", tag="timeline_undo", enabled=False,
-                           callback=_do_undo)
-            with dpg.tooltip("timeline_undo"):
-                dpg.add_text("Annuler la dernière action  [Ctrl+Z]")
-            dpg.add_button(label="↪ Rétablir", tag="timeline_redo", enabled=False,
-                           callback=_do_redo)
-            with dpg.tooltip("timeline_redo"):
-                dpg.add_text("Rétablir  [Ctrl+Y]")
+            _icon_button("undo", "timeline_undo",
+                         "Annuler la dernière action  [Ctrl+Z]", _do_undo, enabled=False)
+            _icon_button("redo", "timeline_redo", "Rétablir  [Ctrl+Y]", _do_redo,
+                         enabled=False)
             dpg.add_separator()
-            dpg.add_checkbox(label="Images clés", default_value=_show_keyframes,
-                             tag="timeline_show_keyframes", callback=_toggle_keyframes)
-            with dpg.tooltip("timeline_show_keyframes"):
-                dpg.add_text("Afficher/masquer les images clés  [Ctrl+K]")
+            # Interrupteur : fond accentué tant que les images clés sont affichées.
+            _icon_button("keyframes", _KEYFRAMES_BUTTON,
+                         "Afficher/masquer les images clés  [Ctrl+K]", toggle_keyframes)
         dpg.add_separator()
 
         # ── Zone principale : labels (fixe) + timeline (scrollable) ───────────
@@ -205,7 +192,41 @@ def create() -> None:
     with dpg.theme() as headers_theme, dpg.theme_component(dpg.mvAll):
         dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 8, 0)
     dpg.bind_item_theme(_HEADERS_TAG, headers_theme)
+    dpg.bind_item_theme(_TOOLBAR_TAG, _TOOLBAR_THEME)
     dpg.bind_item_handler_registry(TAG, _HANDLER_TAG)
+
+
+def _icon_button(name, tag, tooltip, callback, enabled=True) -> None:
+    dpg.add_image_button(icons.texture_tag(name), tag=tag, callback=callback, enabled=enabled,
+                         width=icons.ICON_SIZE, height=icons.ICON_SIZE)
+    with dpg.tooltip(tag):
+        dpg.add_text(tooltip)
+
+
+def _toolbar_theme() -> None:
+    """Boutons-icônes transparents (comme la barre de lecture), estompés si désactivés."""
+    if dpg.does_alias_exist(_TOOLBAR_THEME):
+        return
+    with dpg.theme(tag=_TOOLBAR_THEME):
+        with dpg.theme_component(dpg.mvImageButton):
+            dpg.add_theme_color(dpg.mvThemeCol_Button, (0, 0, 0, 0))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, COLORS["section_hover"])
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, COLORS["accent"])
+            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 4)
+            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 4, 3)
+        with dpg.theme_component(dpg.mvImageButton, enabled_state=False):
+            for color in (dpg.mvThemeCol_Button, dpg.mvThemeCol_ButtonHovered,
+                          dpg.mvThemeCol_ButtonActive):
+                dpg.add_theme_color(color, (0, 0, 0, 0))
+            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 4)
+            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 4, 3)
+            dpg.add_theme_style(dpg.mvStyleVar_DisabledAlpha, 0.35)
+    with dpg.theme(tag=_TOGGLE_ON_THEME), dpg.theme_component(dpg.mvImageButton):
+        dpg.add_theme_color(dpg.mvThemeCol_Button, COLORS["accent"])
+        dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, COLORS["accent_active"])
+        dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, COLORS["accent_active"])
+        dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 4)
+        dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 4, 3)
 
 
 def add_clip(clip: BaseClip) -> None:
@@ -421,7 +442,9 @@ def bind_keyframes(on_select, on_move):
 
 def _toggle_keyframes(sender, value):
     global _show_keyframes
-    _show_keyframes = value
+    _show_keyframes = bool(value)
+    if dpg.does_item_exist(_KEYFRAMES_BUTTON):
+        dpg.bind_item_theme(_KEYFRAMES_BUTTON, _TOGGLE_ON_THEME if _show_keyframes else 0)
     _redraw()
 
 
@@ -701,10 +724,7 @@ def zoom_out() -> None:
 
 
 def toggle_keyframes() -> None:
-    if dpg.does_item_exist("timeline_show_keyframes"):
-        new_val = not dpg.get_value("timeline_show_keyframes")
-        dpg.set_value("timeline_show_keyframes", new_val)
-        _toggle_keyframes(None, new_val)
+    _toggle_keyframes(None, not _show_keyframes)
 
 
 # ── Taille ────────────────────────────────────────────────────────────────────
