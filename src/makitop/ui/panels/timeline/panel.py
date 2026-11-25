@@ -569,7 +569,12 @@ def tick() -> None:
                     if _on_select is not None:
                         _on_select(clip)
             else:
-                # Un seek dans une ligne d'animation conserve le clip sélectionné.
+                # Clic sur zone vide : désélectionner + seek
+                if _selected_clip is not None:
+                    _selected_clip = None
+                    _redraw_static_only()
+                    if _on_select is not None:
+                        _on_select(None)
                 _dragging = True
 
         # Drag d'un clip

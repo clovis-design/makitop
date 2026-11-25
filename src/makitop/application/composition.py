@@ -21,7 +21,6 @@ class CompositionEditor:
         self.on_refresh = on_refresh
         self.selected_id = None
         self.selected_keyframe = None
-        self.source_mode = False
         self._clipboard = None
         self._undo_stack: list = []
         self._redo_stack: list = []
@@ -37,20 +36,8 @@ class CompositionEditor:
 
     def show_montage(self, position=None):
         if position is None:
-            position = 0 if self.source_mode else self.playback.current_time()
-        self.source_mode = False
+            position = self.playback.current_time()
         self.playback.set_project(self.project, position)
-        self.on_refresh()
-
-    def preview_source(self, media):
-        clip = self._new_clip(media, 0, 0)
-        self.source_mode = True
-        self.playback.set_project(Project(
-            media=[media], timeline=Timeline(
-                clips=[clip], fps=min(120, max(1, ceil(media.fps or self.project.timeline.fps))),
-            ),
-            canvas_format=self.project.canvas_format,
-        ))
         self.on_refresh()
 
     @staticmethod
@@ -64,7 +51,7 @@ class CompositionEditor:
     def add_media(self, media, start=None):
         self.push_undo()
         if start is None:
-            start = 0 if self.source_mode else self.playback.current_time()
+            start = self.playback.current_time()
         track = max((c.track for c in self.project.timeline.clips), default=-1) + 1
         clip = self._new_clip(media, start, track)
         self.project.timeline.add_clip(clip)
@@ -77,7 +64,7 @@ class CompositionEditor:
         self.push_undo()
         template = PRESETS[preset]
         if start is None:
-            start = self.project.view.playhead if self.source_mode else self.playback.current_time()
+            start = self.playback.current_time()
         duration = 5.0
         clips = self.project.timeline.clips
         front_media = max((c.track for c in clips if not isinstance(c, TextClip)), default=-1)
@@ -129,9 +116,8 @@ class CompositionEditor:
             return
         factor = clip.speed / updated.speed
         keys = tuple(replace(key, time=key.time * factor) for key in clip.keyframes)
-        current = (self.project.view.playhead if self.source_mode
-                   else self.playback.current_time())
-        if not self.source_mode and clip.timeline_start <= current <= clip.timeline_end:
+        current = self.playback.current_time()
+        if clip.timeline_start <= current <= clip.timeline_end:
             current = clip.timeline_start + (current - clip.timeline_start) * factor
         if self.selected_keyframe is not None:
             name, time = self.selected_keyframe
@@ -143,9 +129,9 @@ class CompositionEditor:
             self.selected_keyframe = None
         self.selected_id = clip_id
         clip = self.selected
-        if clip is not None and (self.source_mode or not (
+        if clip is not None and not (
             clip.timeline_start <= self.playback.current_time() < clip.timeline_end
-        )):
+        ):
             self.show_montage(clip.timeline_start)
         else:
             self.on_refresh()
@@ -391,15 +377,10 @@ class CompositionEditor:
         self._edited()
 
     def seek(self, position):
-        if self.source_mode:
-            self.show_montage(position)
-        else:
-            self.playback.seek(position)
+        self.playback.seek(position)
 
     def sync_playhead(self):
         """Reporte la position de lecture dans le projet (appelé à chaque image)."""
-        if self.source_mode:
-            return
         position = round(self.playback.current_time(), 3)
         self.project.view.playhead = position
 
@@ -599,7 +580,7 @@ class CompositionEditor:
         self.project.timeline = snapshot["timeline"]
         self.selected_id = snapshot["selected_id"]
         self.selected_keyframe = snapshot["selected_keyframe"]
-        playing = self.playback.is_playing() and not self.source_mode
+        playing = self.playback.is_playing()
         self.session.mark_dirty()
         self.show_montage(snapshot["position"])
         if playing:
@@ -614,7 +595,7 @@ class CompositionEditor:
         return bool(self._redo_stack)
 
     def _edited(self, position=None):
-        playing = self.playback.is_playing() and not self.source_mode
+        playing = self.playback.is_playing()
         self.session.mark_dirty()
         self.show_montage(position)
         if playing:

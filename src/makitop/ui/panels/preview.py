@@ -286,9 +286,6 @@ def _header():
     with dpg.child_window(tag=HEADER, height=HEADER_H, border=False, no_scrollbar=True,
                           always_use_window_padding=True):
         with dpg.group(horizontal=True):
-            dpg.add_text("MONTAGE", tag="preview_mode", color=COLORS["accent_active"])
-            dpg.add_button(label="Voir le montage", tag="composition_show", show=False,
-                           callback=lambda: _call(lambda: _editor.show_montage()))
             dpg.add_spacer(width=4)
             dpg.add_combo(list(FORMATS), default_value="16:9", width=80,
                           tag="composition_format", callback=_format_changed)
@@ -464,9 +461,6 @@ def refresh():
     _fps = playing_project.timeline.fps
     _shown_time = None
     dpg.set_value("composition_fps", str(_fps))
-    dpg.configure_item("composition_fps", enabled=not _editor.source_mode)
-    dpg.set_value("preview_mode", "SOURCE" if _editor.source_mode else "MONTAGE")
-    dpg.configure_item("composition_show", show=_editor.source_mode)
     initFinalTime(_editor.playback.duration)
     resize(*_panel)
 
@@ -556,12 +550,12 @@ def _is_empty():
     """Montage sans aucun clip : on invite à glisser un média dans le cadre."""
     if _editor is None:
         return True
-    return not _editor.source_mode and not _editor.project.timeline.clips
+    return not _editor.project.timeline.clips
 
 
 def _draw_selection():
     global _selection_key
-    clip = _editor.selected if _editor is not None and not _editor.source_mode else None
+    clip = _editor.selected if _editor is not None else None
     if clip is not None and not (clip.timeline_start <= _time < clip.timeline_end):
         clip = None
     bounds = _bounds(clip) if clip is not None else None
@@ -582,7 +576,7 @@ def _draw_selection():
         dpg.draw_text(((_size[0] - tw) / 2, _size[1] / 2 - 8), DROP_HINT, size=15,
                       color=COLORS["label_muted"], parent=OVERLAY)
         return
-    if _editor is None or _editor.source_mode:
+    if _editor is None:
         return
     if clip is None:
         return
@@ -610,7 +604,7 @@ def _mouse():
 
 def _click():
     global _gesture
-    if _editor is None or _editor.source_mode or _fullscreen:
+    if _editor is None or _fullscreen:
         return
     point = _mouse()
     selected = _editor.selected

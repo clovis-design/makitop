@@ -505,10 +505,7 @@ def _refresh_keyframes(clip):
                            show=is_text or clip.media.kind != MediaKind.AUDIO)
     dpg.configure_item("keyframe_row_volume", show=not is_text and clip.media.has_audio)
     dpg.configure_item("keyframe_row_opacity", show=is_text)
-    if _editor.source_mode:
-        _sync_property_values(clip, _editor.project.view.playhead)
-    else:
-        tick(_editor.playback.current_time())
+    tick(_editor.playback.current_time())
     if dpg.does_alias_exist("keyframe_edit"):
         selected = next((k for k in clip.keyframes
                          if (k.property, k.time) == _editor.selected_keyframe), None)
@@ -559,8 +556,7 @@ def _open_animated_value(sender, app_data, control):
     visible = [key for key in keys if key.time <= clip.duration]
     candidates = visible or keys
     primary = [key for key in candidates if key.property == _PRIMARY_KEYS.get(control)]
-    position = (_editor.project.view.playhead if _editor.source_mode
-                else _editor.playback.current_time())
+    position = _editor.playback.current_time()
     local_time = position - clip.timeline_start
     key = min(primary or candidates, key=lambda k: (abs(k.time - local_time), k.time))
     if "kf_edit" in _collapsed:
@@ -587,7 +583,7 @@ def _key_time_changed(sender, value):
 
 def tick(position):
     """Actualise les indicateurs de clés et la position sans reconstruire les contrôles."""
-    clip = _editor.selected if _editor and not _editor.source_mode else None
+    clip = _editor.selected if _editor else None
     if clip is None:
         return
     local_time = max(0, min(clip.duration, position - clip.timeline_start))

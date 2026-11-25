@@ -63,7 +63,7 @@ def bind(editor, on_error=None) -> None:
     bind_paste(editor.paste_clip)
     bind_clip_moved(lambda clip: _bridge_drag(editor, clip))
     bind_track_reordered(lambda: _bridge_reorder(editor))
-    bind_select(lambda clip: editor.select(clip.id))
+    bind_select(lambda clip: editor.select(clip.id if clip is not None else None))
     bind_zoom(editor.set_timeline_zoom)
     bind_get_dragging_media(media_panel.get_dragging_media)
     bind_media_drop(lambda media, start, row: _bridge_media_drop(editor, media, start, row))

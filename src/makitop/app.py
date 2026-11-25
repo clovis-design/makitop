@@ -48,7 +48,7 @@ def main() -> None:
 
     def select_media(media: Media) -> None:
         try:
-            editor.preview_source(media)
+            editor.add_media(media)
         except ValueError as exc:
             composition_error(str(exc))
 
@@ -214,7 +214,7 @@ def main() -> None:
             editor.sync_playhead()
             preview.update_time(current_time)
             properties.tick(current_time)
-            timeline_panel.set_playhead(0 if editor.source_mode else current_time)
+            timeline_panel.set_playhead(current_time)
 
             try:
                 frame = playback_controller.poll()
