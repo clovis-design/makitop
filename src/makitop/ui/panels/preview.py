@@ -616,14 +616,11 @@ def _mouse():
     return (mx - x) / _size[0], (my - y) / _size[1]
 
 
-def _click():
-    global _gesture
-    if _editor is None or _editor.source_mode or _fullscreen:
-        return
-    point = _mouse()
+def _target_at(point):
+    """Même zone de prise pour le survol et le clic."""
     selected = _editor.selected
-    handle = "move"
-    if selected is not None and selected in _editor.project.timeline.clips_at(_time):
+    clips = _editor.project.timeline.clips_at(_time)
+    if selected is not None and selected in clips:
         bounds = _bounds(selected)
         crop = _crop_enabled(selected)
         rotation = _rotation(selected)
@@ -638,16 +635,74 @@ def _click():
             for name, (x, y) in handles.items()
         )
         if distance <= 9:
-            handle = nearest
-    if handle == "move":
-        selected = None
-        for clip in reversed(_editor.project.timeline.clips_at(_time)):
-            bounds = _bounds(clip)
-            x, y, w, h = bounds
-            px, py = _rotate_point(point, _bounds_center(bounds), -_rotation(clip))
-            if x <= px <= x + w and y <= py <= y + h:
-                selected = clip
-                break
+            return selected, nearest
+        # Les bords entiers se comportent comme leurs poignées centrales.
+        x, y, w, h = bounds
+        px, py = _rotate_point(point, _bounds_center(bounds), -rotation)
+        sw, sh = _size
+        edges = []
+        if x <= px <= x + w:
+            edges.extend(((abs(py - y) * sh, "top"), (abs(py - y - h) * sh, "bottom")))
+        if y <= py <= y + h:
+            edges.extend(((abs(px - x) * sw, "left"), (abs(px - x - w) * sw, "right")))
+        if edges:
+            distance, nearest = min(edges)
+            if distance <= 5:
+                return selected, nearest
+    for clip in reversed(clips):
+        bounds = _bounds(clip)
+        x, y, w, h = bounds
+        px, py = _rotate_point(point, _bounds_center(bounds), -_rotation(clip))
+        if x <= px <= x + w and y <= py <= y + h:
+            return clip, "move"
+    return None, None
+
+
+def _gesture_cue(mode, handle, bounds, rotation):
+    if handle in ("move", "rotate"):
+        return handle, 0
+    if handle in ("left", "right"):
+        angle = 0
+    elif handle in ("top", "bottom"):
+        angle = 90
+    else:
+        _, _, w, h = bounds
+        angle = math.degrees(math.atan2(h * _size[1], w * _size[0]))
+        if handle in ("top_right", "bottom_left"):
+            angle = -angle
+    return mode, round((angle + rotation) % 180, 1)
+
+
+def pointer_cue():
+    can_seek = _duration() > 0
+    if can_seek and _scrubbing:
+        return "seek", 0
+    if (_gesture is not None and _editor is not None
+            and not _editor.source_mode and not _fullscreen):
+        clip_id, original, bounds, _, mode, handle, _ = _gesture
+        if _editor.selected_id == clip_id:
+            return _gesture_cue(mode, handle, bounds, original.rotation)
+    if dpg.is_mouse_button_down(dpg.mvMouseButton_Left):
+        return None
+    if can_seek and dpg.is_item_hovered(SCRUBBER):
+        return "seek", 0
+    if _editor is None or _editor.source_mode or _fullscreen:
+        return None
+    if not dpg.is_item_hovered(CANVAS):
+        return None
+    clip, handle = _target_at(_mouse())
+    if clip is None:
+        return None
+    mode = "crop" if _crop_enabled(clip) else "resize"
+    return _gesture_cue(mode, handle, _bounds(clip), _rotation(clip))
+
+
+def _click():
+    global _gesture
+    if _editor is None or _editor.source_mode or _fullscreen:
+        return
+    point = _mouse()
+    selected, handle = _target_at(point)
     _editor.select(selected.id if selected else None)
     if selected:
         _editor.playback.pause()

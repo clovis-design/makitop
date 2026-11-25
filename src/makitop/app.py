@@ -17,6 +17,7 @@ from makitop.ui import home, main_window, menu_bar, screens, shortcuts
 from makitop.ui.assets.style import LOGO
 from makitop.ui.dialogs import import_media, message, project_file
 from makitop.ui.dialogs.export_video import ExportDialog
+from makitop.ui.native_cursor import NativeCursor
 from makitop.ui.panels import effects as effects_panel
 from makitop.ui.panels import media as media_panel
 from makitop.ui.panels import preview, properties, text_presets
@@ -38,6 +39,7 @@ def main() -> None:
     importer = MediaImporter(lambda: session.project, executor)
     playback_controller = TimelinePlaybackController()
     editor = CompositionEditor(session, playback_controller)
+    native_cursor = None
 
     def refresh_editor():
         preview.refresh()
@@ -207,6 +209,7 @@ def main() -> None:
         dpg.set_viewport_resize_callback(lambda: screens.resize())
         dpg.setup_dearpygui()
         dpg.show_viewport()
+        native_cursor = NativeCursor.load()
         _poll_error_shown = False
         show_home()
         while dpg.is_dearpygui_running():
@@ -229,14 +232,26 @@ def main() -> None:
                     _poll_error_shown = True
                     message.show("Lecture impossible", str(exc))
 
-            if not export_dialog.blocks_editor():
+            editor_blocked = export_dialog.blocks_editor()
+            if not editor_blocked:
                 timeline_panel.tick()
                 media_panel.tick()
                 text_presets.tick()
             export_dialog.tick()
+            cue = (
+                preview.pointer_cue()
+                if native_cursor and not editor_blocked and not screens.home_shown() else None
+            )
+            if native_cursor:
+                if cue is None:
+                    native_cursor.reset()
+                else:
+                    native_cursor.apply(cue)
             dpg.render_dearpygui_frame()
 
     finally:
+        if native_cursor is not None:
+            native_cursor.close()
         if export_dialog is not None:
             export_dialog.close()
         executor.shutdown(wait=True, cancel_futures=True)

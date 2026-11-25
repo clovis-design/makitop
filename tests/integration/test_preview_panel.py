@@ -5,6 +5,7 @@ from makitop.application.composition import CompositionEditor
 from makitop.application.projects import ProjectSession
 from makitop.application.timeline_playback import TimelinePlaybackController
 from makitop.media.probe import probe
+from makitop.model.composition import Transform
 from makitop.storage.recent import RecentProjects
 from makitop.ui import main_window, shortcuts
 from makitop.ui.panels import preview, properties, transport_icons
@@ -55,6 +56,56 @@ def test_scrubber_click_seeks_proportionally(editor, video_file, monkeypatch):
     assert editor.playback.current_time() == pytest.approx(0, abs=0.05)
     preview._release()
     assert not preview._scrubbing
+
+
+def test_pointer_follows_preview_handles_and_keeps_active_gesture(editor, video_file, monkeypatch):
+    clip = editor.add_media(probe(video_file))
+    editor.update_clip(clip.id, transform=Transform(x=0.2, y=0.2, width=0.6, height=0.6))
+    hovered = preview.CANVAS
+    point = (0.5, 0.5)
+    monkeypatch.setattr(dpg, "is_item_hovered", lambda item: item == hovered)
+    monkeypatch.setattr(preview, "_mouse", lambda: point)
+    assert preview.pointer_cue() == ("move", 0)
+
+    bounds = preview._bounds(editor.selected)
+    handles = preview._handles(bounds, False)
+    for name, angle in (("left", 0), ("bottom", 90)):
+        point = handles[name]
+        assert preview.pointer_cue() == ("resize", angle)
+    x, y, w, h = bounds
+    point = (x + w, y + h * 0.25)
+    assert preview.pointer_cue() == ("resize", 0)
+    point = handles["bottom_right"]
+    kind, angle = preview.pointer_cue()
+    assert kind == "resize" and 0 < angle < 90
+    point = preview._rotation_handle(bounds, 0)[1]
+    assert preview.pointer_cue() == ("rotate", 0)
+    preview._click()
+    hovered = preview.SCRUBBER
+    assert preview.pointer_cue() == ("rotate", 0)
+    preview._release()
+    assert preview.pointer_cue() == ("seek", 0)
+
+    hovered = preview.CANVAS
+    editor.set_clip_orientation(rotation=90)
+    bounds = preview._bounds(editor.selected)
+    point = preview._handles(bounds, False, 90)["left"]
+    assert preview.pointer_cue() == ("resize", 90)
+    dpg.set_value("composition_crop", True)
+    assert preview.pointer_cue() == ("crop", 90)
+    preview.set_fullscreen(True)
+    assert preview.pointer_cue() is None
+
+
+def test_pointer_for_text_only_in_preview(editor, monkeypatch):
+    editor.add_text("title")
+    hovered = preview.CANVAS
+    point = preview._handles(preview._bounds(editor.selected), False)["top"]
+    monkeypatch.setattr(preview, "_mouse", lambda: point)
+    monkeypatch.setattr(dpg, "is_item_hovered", lambda item: item == hovered)
+    assert preview.pointer_cue() == ("resize", 90)
+    hovered = None
+    assert preview.pointer_cue() is None
 
 
 def test_show_montage_button_only_in_source_mode(editor, video_file):

@@ -30,6 +30,10 @@ Chaque ajout crée une nouvelle piste. Dans le lecteur, les poignées gauche et
 droite règlent la largeur ; celles du haut et du bas règlent la hauteur.
 Les coins conservent les proportions. Activez **Recadrer** pour rogner les
 bords au lieu de redimensionner.
+
+Sous Linux, le curseur natif change au survol et pendant le glissement sur le
+cadre, ses bords et ses poignées, ainsi que sur la barre de lecture. Si le
+backend GLFW ne permet pas ce changement, le curseur standard reste affiché.
 Le format du cadre (16:9, 9:16, 1:1) se choisit au-dessus de la composition.
 
 Dans **Propriétés → Vidéo → Transformation**, **Rotation** fait pivoter le
