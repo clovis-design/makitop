@@ -2,7 +2,7 @@ import dearpygui.dearpygui as dpg
 import pytest
 
 from makitop.media.probe import probe
-from makitop.ui import main_window
+from makitop.ui import main_window, menu_bar, title_bar
 from makitop.model.effects import CATALOG
 from makitop.ui.panels import effects, media, preview, properties, sidebar, timeline
 
@@ -25,6 +25,34 @@ def test_build_cree_toutes_les_zones(context):
         timeline.TAG,
     ):
         assert dpg.does_item_exist(tag)
+
+
+def test_barre_de_titre_menus_et_boutons(context):
+    closed = []
+    main_window.build(on_close=lambda: closed.append(True))
+    for tag in (title_bar.TAG, title_bar.MIN_BUTTON, title_bar.MAX_BUTTON,
+                title_bar.CLOSE_BUTTON):
+        assert dpg.does_item_exist(tag)
+    # Les menus sont dans la barre de titre, plus dans la fenêtre principale.
+    item = dpg.get_alias_id(menu_bar.item_tag(menu_bar.SAVE_PROJECT))
+    parents = set()
+    while item:
+        item = dpg.get_item_parent(item)
+        if isinstance(item, str):
+            item = dpg.get_alias_id(item)
+        parents.add(item)
+    assert dpg.get_alias_id(title_bar.TAG) in parents
+    assert dpg.get_alias_id(main_window.ROOT) not in parents
+    dpg.get_item_callback(title_bar.CLOSE_BUTTON)()
+    assert closed == [True]
+
+
+def test_plein_ecran_masque_la_barre_de_titre(context):
+    main_window.build()
+    main_window.set_fullscreen(True)
+    assert not dpg.is_item_shown(title_bar.TAG)
+    main_window.set_fullscreen(False)
+    assert dpg.is_item_shown(title_bar.TAG)
 
 
 def test_resize_applique_les_tailles(context):

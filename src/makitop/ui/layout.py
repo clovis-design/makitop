@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-MENU_BAR_HEIGHT = 20
+TITLE_BAR_HEIGHT = 36  # barre de titre personnalisée (ui/title_bar.py), menus compris
 SPACING = 8  # espace horizontal entre deux zones
 V_SPACING = 4  # espace vertical entre deux zones (item_spacing par défaut de Dear PyGui)
 SIDEBAR_WIDTH = 80
@@ -34,7 +34,7 @@ def compute_layout(width: int, height: int) -> Layout:
     À droite : preview et propriétés en haut, timeline en bas.
     """
     inner_w = max(width - 2 * SPACING, SIDEBAR_WIDTH + 3 * MIN_PANEL)
-    inner_h = max(height - MENU_BAR_HEIGHT - 3 * SPACING, 2 * MIN_PANEL)
+    inner_h = max(height - TITLE_BAR_HEIGHT - 3 * SPACING, 2 * MIN_PANEL)
 
     media_w = max(int(inner_w * MEDIA_RATIO), MIN_PANEL)
     right_w = max(inner_w - SIDEBAR_WIDTH - media_w - 2 * SPACING, 2 * MIN_PANEL)

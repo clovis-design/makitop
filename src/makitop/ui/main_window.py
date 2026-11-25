@@ -7,9 +7,9 @@ import dearpygui.dearpygui as dpg
 
 from makitop.application.timeline_playback import TimelinePlaybackController
 from makitop.model.media import Media
-from makitop.ui import menu_bar, shortcuts
+from makitop.ui import menu_bar, shortcuts, title_bar
 from makitop.ui.assets.style import COLORS, FONT_INTER
-from makitop.ui.layout import compute_layout
+from makitop.ui.layout import TITLE_BAR_HEIGHT, V_SPACING, compute_layout
 from makitop.ui.panels import media, preview, properties, sidebar, timeline
 
 ROOT = "main_window"
@@ -70,9 +70,11 @@ def build(
     on_add_to_timeline: Callable[[Media], None] | None = None,
     block_shortcuts: Callable[[], bool] | None = None,
     on_add_text: Callable[[str], None] | None = None,
+    on_close: Callable[[], None] | None = None,
 ) -> None:
     """`actions` associe un libellé de menu (voir menu_bar.MENUS) à la fonction à appeler.
-    Les raccourcis clavier (ui/shortcuts.py) déclenchent les mêmes actions."""
+    Les raccourcis clavier (ui/shortcuts.py) déclenchent les mêmes actions.
+    Les menus sont dans la barre de titre (ui/title_bar.py), dont `on_close` est le bouton ✕."""
     global _fullscreen
     _fullscreen = False
     actions = actions or {}
@@ -80,7 +82,8 @@ def build(
     preview.create_video_texture()
     setup_fonts()
     with dpg.window(tag=ROOT, no_title_bar=True, no_move=True, no_resize=True):
-        menu_bar.create(actions, shortcuts.labels())
+        # Place de la barre de titre, posée par-dessus cette fenêtre.
+        dpg.add_spacer(height=TITLE_BAR_HEIGHT - V_SPACING)
         with dpg.group(horizontal=True):
             sidebar.create()
             media.create(on_media_selected, actions.get(menu_bar.IMPORT_MEDIA), on_add_to_timeline,
@@ -95,6 +98,7 @@ def build(
     with dpg.window(tag=FULLSCREEN_WINDOW, no_title_bar=True, no_move=True, no_resize=True,
                     no_scrollbar=True, show=False):
         pass
+    title_bar.create(actions, shortcuts.labels(), on_close)
     apply_global_style()
     sidebar.select(media.DEFAULT_SECTION)
 
@@ -124,6 +128,7 @@ def set_fullscreen(on: bool) -> None:
         dpg.show_item(ROOT)
         dpg.set_primary_window(ROOT, True)
     preview.set_fullscreen(on)
+    title_bar.set_visible(not on)
     if dpg.is_viewport_ok():  # pas de viewport dans les tests
         dpg.toggle_viewport_fullscreen()
         resize(dpg.get_viewport_client_width(), dpg.get_viewport_client_height())

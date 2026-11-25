@@ -13,8 +13,8 @@ from makitop.application.projects import ProjectSession
 from makitop.application.timeline_playback import TimelinePlaybackController
 from makitop.model.media import Media
 from makitop.storage.recent import RecentProjects, config_dir
-from makitop.ui import home, main_window, menu_bar, screens, shortcuts
-from makitop.ui.assets.style import LOGO
+from makitop.ui import home, main_window, menu_bar, screens, shortcuts, title_bar, win32_window
+from makitop.ui.assets.style import COLORS, LOGO
 from makitop.ui.dialogs import import_media, message, project_file
 from makitop.ui.dialogs.export_video import ExportDialog
 from makitop.ui.panels import effects as effects_panel
@@ -107,6 +107,7 @@ def main() -> None:
             on_add_to_timeline=on_add_to_timeline,
             block_shortcuts=export_dialog.blocks_editor,
             on_add_text=on_add_text,
+            on_close=project_file.quit_app,
         )
         home.create(on_new=project_file.new_project, on_open=project_file.open_dialog)
         import_media.create(on_files_selected=importer.import_files)
@@ -195,9 +196,12 @@ def main() -> None:
             title=TITLE,
             width=DEFAULT_WIDTH,
             height=DEFAULT_HEIGHT,
-            min_width=1500,
-            min_height=600,
+            min_width=title_bar.MIN_WIDTH,
+            min_height=title_bar.MIN_HEIGHT,
             disable_close=True,
+            # Barre native masquée : ui/title_bar.py la remplace.
+            decorated=False,
+            clear_color=COLORS["bg_panel"],
             small_icon=icon,
             large_icon=icon,
         )
@@ -205,10 +209,12 @@ def main() -> None:
         dpg.set_viewport_resize_callback(lambda: screens.resize())
         dpg.setup_dearpygui()
         dpg.show_viewport()
+        title_bar.setup_window(win32_window.find_hwnd(TITLE))
         _poll_error_shown = False
         show_home()
         while dpg.is_dearpygui_running():
             dpg.run_callbacks(dpg.get_callback_queue())
+            title_bar.tick()
 
             current_time = playback_controller.current_time()
             editor.sync_playhead()
@@ -284,7 +290,7 @@ def _show_project_media(session: ProjectSession, executor: Executor) -> None:
 
 def _refresh_title_and_projects(session: ProjectSession) -> None:
     on_home = screens.home_shown()
-    dpg.set_viewport_title(TITLE if on_home else f"{session.title} - {TITLE}")
+    title_bar.set_title(TITLE if on_home else f"{session.title} - {TITLE}")
     projects = session.recent.entries()
     menu_bar.set_recent_projects(
         [p.path for p in projects[:MENU_RECENT_COUNT]], project_file.open_recent
