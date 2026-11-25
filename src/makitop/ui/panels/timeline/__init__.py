@@ -69,7 +69,7 @@ def bind(editor, on_error=None) -> None:
     bind_media_drop(lambda media, start, row: _bridge_media_drop(editor, media, start, row))
     from makitop.ui.panels import text_presets
     bind_get_dragging_text(text_presets.get_dragging_text)
-    bind_text_drop(lambda kind, start: _bridge_text_drop(editor, kind, start))
+    bind_text_drop(lambda kind, start, row: _bridge_text_drop(editor, kind, start, row))
 
     def key_action(method, *args):
         try:
@@ -167,9 +167,17 @@ def _bridge_media_drop(editor, media, start: float, target_row: int) -> None:
         pass
 
 
-def _bridge_text_drop(editor, kind: str, start: float) -> None:
+def _bridge_text_drop(editor, kind: str, start: float, target_row: int) -> None:
+    from makitop.ui.panels.timeline.panel import move_track_to
     try:
-        editor.add_text(kind, start=start)
+        clip = editor.add_text(kind, start=start, new_track=True)
+        rows = get_track_rows()
+        source_row = next((i for i, row in enumerate(rows) if clip.id in row), None)
+        if source_row is not None:
+            clamped = min(max(source_row, target_row), len(rows) - 1)
+            if clamped != source_row:
+                move_track_to(source_row, clamped)
+                _bridge_reorder(editor)
     except ValueError:
         pass
 

@@ -72,17 +72,22 @@ class CompositionEditor:
         self._edited(start)
         return clip
 
-    def add_text(self, preset: str, start: float | None = None) -> TextClip:
+    def add_text(self, preset: str, start: float | None = None,
+                 new_track: bool = False) -> TextClip:
+        self.push_undo()
         template = PRESETS[preset]
         if start is None:
             start = self.project.view.playhead if self.source_mode else self.playback.current_time()
         duration = 5.0
         clips = self.project.timeline.clips
         front_media = max((c.track for c in clips if not isinstance(c, TextClip)), default=-1)
-        occupied = {c.track for c in clips
-                    if start < c.timeline_end and c.timeline_start < start + duration}
-        track = next((track for track in range(front_media + 1, 100)
-                      if track not in occupied), None)
+        if new_track:
+            track = max((c.track for c in clips), default=-1) + 1
+        else:
+            occupied = {c.track for c in clips
+                        if start < c.timeline_end and c.timeline_start < start + duration}
+            track = next((track for track in range(front_media + 1, 100)
+                          if track not in occupied), None)
         if track is None:
             raise ValueError("Aucune piste libre au premier plan à cet instant.")
         clip = TextClip(start, duration, template.content, style=template.style,

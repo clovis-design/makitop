@@ -467,7 +467,10 @@ def tick() -> None:
         dpg.delete_item(_GHOST_LAYER, children_only=True)
 
     # Étendre le drawlist pendant un drag externe pour autoriser le drop en bas
-    ext_active = _get_dragging_media is not None and _get_dragging_media() is not None
+    ext_active = (
+        (_get_dragging_media is not None and _get_dragging_media() is not None)
+        or (_get_dragging_text is not None and _get_dragging_text() is not None)
+    )
     if dpg.does_item_exist(_DRAWLIST_TAG):
         target_h = _content_height() + (_TRACK_H if ext_active else 0)
         if dpg.get_item_rect_size(_DRAWLIST_TAG)[1] != target_h:
@@ -608,8 +611,10 @@ def tick() -> None:
         ext_text = _get_dragging_text() if _get_dragging_text is not None else None
         if ext_text is not None and hovered:
             ext_start = max(0.0, local_x / _px_per_sec)
+            ext_row = _row_at(local_y)
+            _draw_text_ghost(ext_text, ext_start, ext_row)
             if not btn_down and _on_text_drop is not None:
-                _on_text_drop(ext_text, ext_start)
+                _on_text_drop(ext_text, ext_start, ext_row)
 
         # Curseur hover
         dpg.delete_item(_CURSOR_LAYER, children_only=True)
@@ -990,6 +995,41 @@ def _draw_external_media_ghost(media, start: float, target_row: int) -> None:
             (gx + 5, gy + clip_h // 2 - 6),
             media.path.stem,
             color=(200, 255, 210, 220),
+            size=12,
+            parent=_GHOST_LAYER,
+        )
+
+
+def _draw_text_ghost(kind: str, start: float, target_row: int) -> None:
+    """Ghost violet à la position d'insertion d'un clip texte (durée fixe 5 s)."""
+    if not dpg.does_item_exist(_GHOST_LAYER):
+        return
+    from makitop.model.text import PRESETS as _PRESETS
+    label = _PRESETS[kind].label if kind in _PRESETS else kind
+    total_w = _content_width()
+    insert_y = _row_top(target_row)
+    gx = int(start * _px_per_sec)
+    gw = max(10, int(5.0 * _px_per_sec))
+    clip_h = _TRACK_H - 8
+    dpg.draw_line(
+        (0, insert_y), (total_w, insert_y),
+        color=(160, 130, 255, 180),
+        thickness=2,
+        parent=_GHOST_LAYER,
+    )
+    gy = insert_y + 4
+    dpg.draw_rectangle(
+        (gx, gy), (gx + gw, gy + clip_h),
+        fill=(130, 100, 220, 55),
+        color=(160, 130, 255, 200),
+        thickness=2,
+        parent=_GHOST_LAYER,
+    )
+    if gw >= 20:
+        dpg.draw_text(
+            (gx + 5, gy + clip_h // 2 - 6),
+            label,
+            color=(220, 200, 255, 220),
             size=12,
             parent=_GHOST_LAYER,
         )
