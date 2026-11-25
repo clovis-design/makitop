@@ -43,6 +43,9 @@ _DEFAULT_ZOOM_IDX = 17  # 100 px/s par défaut
 _zoom_idx: int = _DEFAULT_ZOOM_IDX
 _px_per_sec: int = _ZOOM_LEVELS[_DEFAULT_ZOOM_IDX]
 
+# ── Snap magnétique ───────────────────────────────────────────────────────────
+_SNAP_THRESHOLD_PX = 10
+
 # ── Couleurs ──────────────────────────────────────────────────────────────────
 _COLOR_RULER_BG = (28, 28, 32, 255)
 _COLOR_TICK = (120, 120, 130, 255)
@@ -619,7 +622,8 @@ def tick() -> None:
                 _drag_keyframe = (property, old_time, time)
                 _redraw_static_only()
         elif _drag_clip is not None and btn_down:
-            new_start = max(0.0, (local_x - _drag_offset_px) / _px_per_sec)
+            raw_start = max(0.0, (local_x - _drag_offset_px) / _px_per_sec)
+            new_start, snap_x = _apply_snap(raw_start)
 
             # Déplacement vertical entre pistes
             target_row = min(_row_at(local_y), len(_tracks) - 1)
@@ -653,7 +657,8 @@ def tick() -> None:
 
             # Ghost : surbrillance de la piste cible + indicateur si overlap ou incompatibilité
             ghost_row = _incompatible_drop_target if _incompatible_drop_target is not None else target_row
-            _draw_drag_ghost(ghost_row, new_start, incompatible=_incompatible_drop_target is not None)
+            _draw_drag_ghost(ghost_row, new_start, incompatible=_incompatible_drop_target is not None,
+                             snap_x=snap_x)
 
         # Seek drag
         elif _dragging and btn_down and _on_seek is not None and not _external_drag:
@@ -988,7 +993,45 @@ def _do_delete_track(track_idx: int, dialog_tag: str) -> None:
     _redraw()
 
 
-def _draw_drag_ghost(target_row: int, new_start: float, incompatible: bool = False) -> None:
+def _snap_points() -> list[float]:
+    """Débuts et fins de tous les clips (sauf le clip draggé) + playhead."""
+    pts = [_playhead_sec]
+    for clip in _all_clips():
+        if clip is _drag_clip:
+            continue
+        pts.append(clip.timeline_start)
+        pts.append(clip.timeline_end)
+    return pts
+
+
+def _apply_snap(new_start: float) -> tuple[float, float | None]:
+    """Snap magnétique : retourne (position snappée, x écran du point d'accrochage ou None).
+    Alt désactive le snap."""
+    if dpg.is_key_down(dpg.mvKey_ModAlt) or _drag_clip is None:
+        return new_start, None
+    duration = _drag_clip.duration
+    threshold_sec = _SNAP_THRESHOLD_PX / _px_per_sec
+    best_delta = threshold_sec
+    snapped = new_start
+    snap_t: float | None = None
+    for t in _snap_points():
+        d_start = abs(new_start - t)
+        if d_start < best_delta:
+            best_delta = d_start
+            snapped = t
+            snap_t = t
+        d_end = abs((new_start + duration) - t)
+        if d_end < best_delta:
+            best_delta = d_end
+            snapped = t - duration
+            snap_t = t
+    if snap_t is not None:
+        return max(0.0, snapped), snap_t * _px_per_sec
+    return new_start, None
+
+
+def _draw_drag_ghost(target_row: int, new_start: float, incompatible: bool = False,
+                     snap_x: float | None = None) -> None:
     if not dpg.does_item_exist(_GHOST_LAYER) or _drag_clip is None:
         return
     total_w = _content_width()
@@ -1035,6 +1078,14 @@ def _draw_drag_ghost(target_row: int, new_start: float, incompatible: bool = Fal
             parent=_GHOST_LAYER,
         )
 
+    if snap_x is not None:
+        total_h = _content_height()
+        dpg.draw_line(
+            (snap_x, _RULER_H), (snap_x, total_h),
+            color=(255, 255, 255, 180),
+            thickness=1,
+            parent=_GHOST_LAYER,
+        )
 
 
 def _draw_external_media_ghost(media, start: float, target_row: int) -> None:

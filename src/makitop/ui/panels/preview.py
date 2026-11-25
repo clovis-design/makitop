@@ -557,13 +557,6 @@ def _is_empty():
     return not _editor.project.timeline.clips
 
 
-def _is_empty():
-    """Montage sans aucun clip : on invite à glisser un média dans le cadre."""
-    if _editor is None:
-        return True
-    return not _editor.project.timeline.clips
-
-
 def _draw_selection():
     global _selection_key
     clip = _editor.selected if _editor is not None else None
