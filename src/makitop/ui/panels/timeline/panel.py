@@ -73,6 +73,7 @@ _dragging: bool = False
 _drag_clip: BaseClip | None = None
 _drag_offset_px: float = 0.0
 _drag_source_row: int | None = None
+_drag_start_time: float | None = None
 _incompatible_drop_target: int | None = None
 _selected_clip: BaseClip | None = None
 _pending_fit_zoom: bool = False
@@ -91,7 +92,7 @@ _on_text_drop = None         # Callable[[str, float], None]
 
 def create() -> None:
     global _zoom_idx, _px_per_sec, _tracks, _playhead_sec
-    global _dragging, _drag_clip, _drag_offset_px, _drag_source_row, _selected_clip
+    global _dragging, _drag_clip, _drag_offset_px, _drag_source_row, _drag_start_time, _selected_clip
     global _on_delete, _on_clip_moved, _on_track_reordered, _on_select, _on_zoom, _pending_fit_zoom
     global _show_keyframes, _selected_keyframe, _drag_keyframe
     global _on_key_select, _on_key_move
@@ -106,6 +107,7 @@ def create() -> None:
     _drag_clip = None
     _drag_offset_px = 0.0
     _drag_source_row = None
+    _drag_start_time = None
     _selected_clip = None
     _on_delete = None
     _on_clip_moved = None
@@ -460,7 +462,7 @@ def set_playhead(seconds: float) -> None:
 # ── Tick (appelé chaque frame) ────────────────────────────────────────────────
 
 def tick() -> None:
-    global _dragging, _drag_clip, _drag_offset_px, _drag_source_row, _selected_clip
+    global _dragging, _drag_clip, _drag_offset_px, _drag_source_row, _drag_start_time, _selected_clip
     global _drag_keyframe, _incompatible_drop_target
     if _pending_fit_zoom:
         _apply_fit_zoom()
@@ -510,9 +512,10 @@ def tick() -> None:
                 _incompatible_drop_target = None
             dest_row_idx = next((i for i, row in enumerate(_tracks) if _drag_clip in row), None)
             reorder_needed = dest_row_idx != _drag_source_row
-            # Si la row de destination a plusieurs clips, un merge a eu lieu (les indices
-            # ont pu se décaler après un pop() pendant le drag) → forcer le reorder
-            if not reorder_needed and dest_row_idx is not None and len(_tracks[dest_row_idx]) > 1:
+            # Si la row de destination a plusieurs clips ET que le clip a bougé, un merge
+            # a eu lieu (les indices ont pu se décaler après un pop() pendant le drag).
+            clip_moved = _drag_clip.timeline_start != _drag_start_time
+            if not reorder_needed and clip_moved and dest_row_idx is not None and len(_tracks[dest_row_idx]) > 1:
                 reorder_needed = True
             if dest_row_idx is not None:
                 row = _tracks[dest_row_idx]
@@ -527,10 +530,11 @@ def tick() -> None:
                 if _on_track_reordered is not None:
                     _on_track_reordered()
                 _redraw()
-            else:
+            elif _drag_clip.timeline_start != _drag_start_time:
                 if _on_clip_moved is not None:
                     _on_clip_moved(_drag_clip)
             _drag_clip = None
+            _drag_start_time = None
             _drag_source_row = None
         _dragging = False
 
@@ -559,6 +563,7 @@ def tick() -> None:
                 if _on_drag_start is not None:
                     _on_drag_start()
                 _drag_clip = clip
+                _drag_start_time = clip.timeline_start
                 _drag_offset_px = local_x - clip.timeline_start * _px_per_sec
                 _drag_source_row = next(
                     (i for i, row in enumerate(_tracks) if clip in row), None
