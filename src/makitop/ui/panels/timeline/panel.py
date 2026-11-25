@@ -5,6 +5,8 @@ import dearpygui.dearpygui as dpg
 from makitop.media.thumbnails import THUMB_H, THUMB_W
 from makitop.model.keyframes import PROPERTIES
 from makitop.model.timeline import BaseClip, TextClip
+from makitop.ui.assets.style import COLORS
+from makitop.ui.panels.timeline import icons
 
 TAG = "timeline_panel"
 CURSOR = "timeline_cursor"
@@ -15,6 +17,9 @@ SELECTION = "timeline_selection"
 
 # ── Tags ──────────────────────────────────────────────────────────────────────
 _TOOLBAR_TAG = "timeline_toolbar"
+_TOOLBAR_THEME = "timeline_toolbar_theme"
+_TOGGLE_ON_THEME = "timeline_toggle_on_theme"
+_KEYFRAMES_BUTTON = "timeline_show_keyframes"
 _MAIN_GROUP_TAG = "timeline_main_group"
 _HEADERS_TAG = "timeline_headers"
 _SCROLL_TAG = "timeline_scroll"
@@ -73,10 +78,13 @@ _dragging: bool = False
 _drag_clip: BaseClip | None = None
 _drag_offset_px: float = 0.0
 _drag_source_row: int | None = None
+_drag_start_time: float | None = None
+_incompatible_drop_target: int | None = None
 _selected_clip: BaseClip | None = None
 _pending_fit_zoom: bool = False
 _show_keyframes = False
 _selected_keyframe = None
+_transition_spans = ()
 _drag_keyframe = None  # (propriété, temps initial, temps provisoire)
 _on_key_select = None
 _on_key_move = None
@@ -90,12 +98,13 @@ _on_text_drop = None         # Callable[[str, float], None]
 
 def create() -> None:
     global _zoom_idx, _px_per_sec, _tracks, _playhead_sec
-    global _dragging, _drag_clip, _drag_offset_px, _drag_source_row, _selected_clip
+    global _dragging, _drag_clip, _drag_offset_px, _drag_source_row, _drag_start_time, _selected_clip
     global _on_delete, _on_clip_moved, _on_track_reordered, _on_select, _on_zoom, _pending_fit_zoom
-    global _show_keyframes, _selected_keyframe, _drag_keyframe
+    global _show_keyframes, _selected_keyframe, _drag_keyframe, _transition_spans
     global _on_key_select, _on_key_move
     _show_keyframes = False
     _selected_keyframe = _drag_keyframe = None
+    _transition_spans = ()
     _on_key_select = _on_key_move = None
     _zoom_idx = _DEFAULT_ZOOM_IDX
     _px_per_sec = _ZOOM_LEVELS[_DEFAULT_ZOOM_IDX]
@@ -105,6 +114,7 @@ def create() -> None:
     _drag_clip = None
     _drag_offset_px = 0.0
     _drag_source_row = None
+    _drag_start_time = None
     _selected_clip = None
     _on_delete = None
     _on_clip_moved = None
@@ -113,6 +123,8 @@ def create() -> None:
     _on_zoom = None
     _pending_fit_zoom = False
 
+    icons.load_textures()
+    _toolbar_theme()
     with dpg.item_handler_registry(tag=_HANDLER_TAG):
         dpg.add_item_resize_handler(callback=_on_resize)
 
@@ -120,56 +132,36 @@ def create() -> None:
         # ── Barre d'outils ────────────────────────────────────────────────────
         with dpg.group(horizontal=True, tag=_TOOLBAR_TAG):
             # ── Bloc 1 : Zoom ──────────────────────────────────────────────────
-            dpg.add_button(label="-", tag="timeline_zoom_out", width=24, height=22,
-                           callback=_zoom_out)
-            with dpg.tooltip("timeline_zoom_out"):
-                dpg.add_text("Zoom arrière  [Ctrl+-]")
-            dpg.add_button(label="+", tag="timeline_zoom_in", width=24, height=22,
-                           callback=_zoom_in)
-            with dpg.tooltip("timeline_zoom_in"):
-                dpg.add_text("Zoom avant  [Ctrl++]")
+            _icon_button("zoom_out", "timeline_zoom_out", "Zoom arrière  [Ctrl+-]", _zoom_out)
+            _icon_button("zoom_in", "timeline_zoom_in", "Zoom avant  [Ctrl++]", _zoom_in)
             dpg.add_separator()
             # ── Bloc 2 : Presse-papier & sélection ────────────────────────────
-            dpg.add_button(label="Copier", tag="timeline_copy_clip", enabled=False,
-                           callback=_copy_selected)
-            with dpg.tooltip("timeline_copy_clip"):
-                dpg.add_text("Copier le clip sélectionné  [Ctrl+C]")
-            dpg.add_button(label="Coller", tag="timeline_paste_clip",
-                           callback=_paste_clip)
-            with dpg.tooltip("timeline_paste_clip"):
-                dpg.add_text("Coller le clip copié au playhead  [Ctrl+V]")
-            dpg.add_button(label="Couper", tag="timeline_cut_clip",
-                           enabled=False, callback=_cut_selected)
-            with dpg.tooltip("timeline_cut_clip"):
-                dpg.add_text("Couper le clip sélectionné  [Ctrl+X]")
-            dpg.add_button(label="Dupliquer", tag="timeline_duplicate_clip", enabled=False,
-                           callback=_duplicate_selected)
-            with dpg.tooltip("timeline_duplicate_clip"):
-                dpg.add_text("Dupliquer le clip sélectionné  [Ctrl+D]")
-            dpg.add_button(label="Supprimer", tag="timeline_delete_clip", enabled=False,
-                           callback=delete_selected)
-            with dpg.tooltip("timeline_delete_clip"):
-                dpg.add_text("Supprimer le clip sélectionné  [Suppr]")
+            _icon_button("copy", "timeline_copy_clip",
+                         "Copier le clip sélectionné  [Ctrl+C]", _copy_selected, enabled=False)
+            _icon_button("paste", "timeline_paste_clip",
+                         "Coller le clip copié au playhead  [Ctrl+V]", _paste_clip)
+            _icon_button("cut", "timeline_cut_clip",
+                         "Couper le clip sélectionné  [Ctrl+X]", _cut_selected, enabled=False)
+            _icon_button("duplicate", "timeline_duplicate_clip",
+                         "Dupliquer le clip sélectionné  [Ctrl+D]", _duplicate_selected,
+                         enabled=False)
+            _icon_button("delete", "timeline_delete_clip",
+                         "Supprimer le clip sélectionné  [Suppr]", delete_selected,
+                         enabled=False)
             dpg.add_separator()
             # ── Bloc 3 : Outils timeline ───────────────────────────────────────
-            dpg.add_button(label="Découper", tag="timeline_split_clip",
-                           callback=_split_at_playhead)
-            with dpg.tooltip("timeline_split_clip"):
-                dpg.add_text("Découper le clip à la position de lecture  [Ctrl+B]")
+            _icon_button("split", "timeline_split_clip",
+                         "Découper le clip à la position de lecture  [Ctrl+B]",
+                         _split_at_playhead)
             dpg.add_separator()
-            dpg.add_button(label="↩ Annuler", tag="timeline_undo", enabled=False,
-                           callback=_do_undo)
-            with dpg.tooltip("timeline_undo"):
-                dpg.add_text("Annuler la dernière action  [Ctrl+Z]")
-            dpg.add_button(label="↪ Rétablir", tag="timeline_redo", enabled=False,
-                           callback=_do_redo)
-            with dpg.tooltip("timeline_redo"):
-                dpg.add_text("Rétablir  [Ctrl+Y]")
+            _icon_button("undo", "timeline_undo",
+                         "Annuler la dernière action  [Ctrl+Z]", _do_undo, enabled=False)
+            _icon_button("redo", "timeline_redo", "Rétablir  [Ctrl+Y]", _do_redo,
+                         enabled=False)
             dpg.add_separator()
-            dpg.add_checkbox(label="Images clés", default_value=_show_keyframes,
-                             tag="timeline_show_keyframes", callback=_toggle_keyframes)
-            with dpg.tooltip("timeline_show_keyframes"):
-                dpg.add_text("Afficher/masquer les images clés  [Ctrl+K]")
+            # Interrupteur : fond accentué tant que les images clés sont affichées.
+            _icon_button("keyframes", _KEYFRAMES_BUTTON,
+                         "Afficher/masquer les images clés  [Ctrl+K]", toggle_keyframes)
         dpg.add_separator()
 
         # ── Zone principale : labels (fixe) + timeline (scrollable) ───────────
@@ -205,7 +197,41 @@ def create() -> None:
     with dpg.theme() as headers_theme, dpg.theme_component(dpg.mvAll):
         dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 8, 0)
     dpg.bind_item_theme(_HEADERS_TAG, headers_theme)
+    dpg.bind_item_theme(_TOOLBAR_TAG, _TOOLBAR_THEME)
     dpg.bind_item_handler_registry(TAG, _HANDLER_TAG)
+
+
+def _icon_button(name, tag, tooltip, callback, enabled=True) -> None:
+    dpg.add_image_button(icons.texture_tag(name), tag=tag, callback=callback, enabled=enabled,
+                         width=icons.ICON_SIZE, height=icons.ICON_SIZE)
+    with dpg.tooltip(tag):
+        dpg.add_text(tooltip)
+
+
+def _toolbar_theme() -> None:
+    """Boutons-icônes transparents (comme la barre de lecture), estompés si désactivés."""
+    if dpg.does_alias_exist(_TOOLBAR_THEME):
+        return
+    with dpg.theme(tag=_TOOLBAR_THEME):
+        with dpg.theme_component(dpg.mvImageButton):
+            dpg.add_theme_color(dpg.mvThemeCol_Button, (0, 0, 0, 0))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, COLORS["section_hover"])
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, COLORS["accent"])
+            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 4)
+            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 4, 3)
+        with dpg.theme_component(dpg.mvImageButton, enabled_state=False):
+            for color in (dpg.mvThemeCol_Button, dpg.mvThemeCol_ButtonHovered,
+                          dpg.mvThemeCol_ButtonActive):
+                dpg.add_theme_color(color, (0, 0, 0, 0))
+            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 4)
+            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 4, 3)
+            dpg.add_theme_style(dpg.mvStyleVar_DisabledAlpha, 0.35)
+    with dpg.theme(tag=_TOGGLE_ON_THEME), dpg.theme_component(dpg.mvImageButton):
+        dpg.add_theme_color(dpg.mvThemeCol_Button, COLORS["accent"])
+        dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, COLORS["accent_active"])
+        dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, COLORS["accent_active"])
+        dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 4)
+        dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 4, 3)
 
 
 def add_clip(clip: BaseClip) -> None:
@@ -228,11 +254,11 @@ def _insert_clip(clip: BaseClip) -> None:
     _tracks.append([clip])
 
 
-def set_clips(clips, selected_id, selected_keyframe) -> None:
+def set_clips(clips, selected_id, selected_keyframe, spans=()) -> None:
     _tracks.clear()
     for clip in clips:
         _insert_clip(clip)
-    set_selected(selected_id, selected_keyframe)
+    set_selected(selected_id, selected_keyframe, spans)
 
 
 def clear() -> None:
@@ -421,7 +447,9 @@ def bind_keyframes(on_select, on_move):
 
 def _toggle_keyframes(sender, value):
     global _show_keyframes
-    _show_keyframes = value
+    _show_keyframes = bool(value)
+    if dpg.does_item_exist(_KEYFRAMES_BUTTON):
+        dpg.bind_item_theme(_KEYFRAMES_BUTTON, _TOGGLE_ON_THEME if _show_keyframes else 0)
     _redraw()
 
 
@@ -434,10 +462,11 @@ def set_zoom(pixels_per_second: int) -> None:
     _redraw()
 
 
-def set_selected(clip_id: str | None, keyframe=None) -> None:
-    global _selected_clip, _selected_keyframe
+def set_selected(clip_id: str | None, keyframe=None, spans=()) -> None:
+    global _selected_clip, _selected_keyframe, _transition_spans
     _selected_clip = next((c for c in _all_clips() if c.id == clip_id), None) if clip_id else None
     _selected_keyframe = keyframe
+    _transition_spans = spans
     for tag in ("timeline_delete_clip", "timeline_duplicate_clip",
                 "timeline_copy_clip", "timeline_cut_clip"):
         if dpg.does_item_exist(tag):
@@ -459,15 +488,18 @@ def set_playhead(seconds: float) -> None:
 # ── Tick (appelé chaque frame) ────────────────────────────────────────────────
 
 def tick() -> None:
-    global _dragging, _drag_clip, _drag_offset_px, _drag_source_row, _selected_clip
-    global _drag_keyframe
+    global _dragging, _drag_clip, _drag_offset_px, _drag_source_row, _drag_start_time, _selected_clip
+    global _drag_keyframe, _incompatible_drop_target
     if _pending_fit_zoom:
         _apply_fit_zoom()
     if dpg.does_item_exist(_GHOST_LAYER):
         dpg.delete_item(_GHOST_LAYER, children_only=True)
 
     # Étendre le drawlist pendant un drag externe pour autoriser le drop en bas
-    ext_active = _get_dragging_media is not None and _get_dragging_media() is not None
+    ext_active = (
+        (_get_dragging_media is not None and _get_dragging_media() is not None)
+        or (_get_dragging_text is not None and _get_dragging_text() is not None)
+    )
     if dpg.does_item_exist(_DRAWLIST_TAG):
         target_h = _content_height() + (_TRACK_H if ext_active else 0)
         if dpg.get_item_rect_size(_DRAWLIST_TAG)[1] != target_h:
@@ -492,11 +524,24 @@ def tick() -> None:
                 _on_key_move(property, old_time, new_time)
             _redraw_static_only()
         if _drag_clip is not None:
+            if _incompatible_drop_target is not None:
+                current_row = next((i for i, row in enumerate(_tracks) if _drag_clip in row), None)
+                if current_row is not None:
+                    _tracks[current_row].remove(_drag_clip)
+                    insert_at = _incompatible_drop_target
+                    if not _tracks[current_row]:
+                        _tracks.pop(current_row)
+                        if insert_at > current_row:
+                            insert_at -= 1
+                    insert_at = max(0, min(len(_tracks), insert_at))
+                    _tracks.insert(insert_at, [_drag_clip])
+                _incompatible_drop_target = None
             dest_row_idx = next((i for i, row in enumerate(_tracks) if _drag_clip in row), None)
             reorder_needed = dest_row_idx != _drag_source_row
-            # Si la row de destination a plusieurs clips, un merge a eu lieu (les indices
-            # ont pu se décaler après un pop() pendant le drag) → forcer le reorder
-            if not reorder_needed and dest_row_idx is not None and len(_tracks[dest_row_idx]) > 1:
+            # Si la row de destination a plusieurs clips ET que le clip a bougé, un merge
+            # a eu lieu (les indices ont pu se décaler après un pop() pendant le drag).
+            clip_moved = _drag_clip.timeline_start != _drag_start_time
+            if not reorder_needed and clip_moved and dest_row_idx is not None and len(_tracks[dest_row_idx]) > 1:
                 reorder_needed = True
             if dest_row_idx is not None:
                 row = _tracks[dest_row_idx]
@@ -511,10 +556,11 @@ def tick() -> None:
                 if _on_track_reordered is not None:
                     _on_track_reordered()
                 _redraw()
-            else:
+            elif _drag_clip.timeline_start != _drag_start_time:
                 if _on_clip_moved is not None:
                     _on_clip_moved(_drag_clip)
             _drag_clip = None
+            _drag_start_time = None
             _drag_source_row = None
         _dragging = False
 
@@ -543,6 +589,7 @@ def tick() -> None:
                 if _on_drag_start is not None:
                     _on_drag_start()
                 _drag_clip = clip
+                _drag_start_time = clip.timeline_start
                 _drag_offset_px = local_x - clip.timeline_start * _px_per_sec
                 _drag_source_row = next(
                     (i for i, row in enumerate(_tracks) if clip in row), None
@@ -553,7 +600,12 @@ def tick() -> None:
                     if _on_select is not None:
                         _on_select(clip)
             else:
-                # Un seek dans une ligne d'animation conserve le clip sélectionné.
+                # Clic sur zone vide : désélectionner + seek
+                if _selected_clip is not None:
+                    _selected_clip = None
+                    _redraw_static_only()
+                    if _on_select is not None:
+                        _on_select(None)
                 _dragging = True
 
         # Drag d'un clip
@@ -572,7 +624,14 @@ def tick() -> None:
             # Déplacement vertical entre pistes
             target_row = min(_row_at(local_y), len(_tracks) - 1)
             current_row = next((i for i, row in enumerate(_tracks) if _drag_clip in row), None)
-            if current_row is not None and target_row != current_row:
+            drag_is_text = isinstance(_drag_clip, TextClip)
+            target_compatible = (
+                target_row >= len(_tracks)
+                or not _tracks[target_row]
+                or all(isinstance(c, TextClip) for c in _tracks[target_row]) == drag_is_text
+            )
+            if current_row is not None and target_row != current_row and target_compatible:
+                _incompatible_drop_target = None
                 _tracks[current_row].remove(_drag_clip)
                 if not _tracks[current_row]:
                     _tracks.pop(current_row)
@@ -583,12 +642,18 @@ def tick() -> None:
                 _tracks[target_row].append(_drag_clip)
                 _tracks[target_row].sort(key=lambda c: c.timeline_start)
                 _redraw()
+            elif current_row is not None and not target_compatible:
+                _incompatible_drop_target = target_row
+                _drag_clip.timeline_start = new_start
+                _redraw_static_only()
             else:
+                _incompatible_drop_target = None
                 _drag_clip.timeline_start = new_start
                 _redraw_static_only()
 
-            # Ghost : surbrillance de la piste cible + indicateur si overlap
-            _draw_drag_ghost(target_row, new_start)
+            # Ghost : surbrillance de la piste cible + indicateur si overlap ou incompatibilité
+            ghost_row = _incompatible_drop_target if _incompatible_drop_target is not None else target_row
+            _draw_drag_ghost(ghost_row, new_start, incompatible=_incompatible_drop_target is not None)
 
         # Seek drag
         elif _dragging and btn_down and _on_seek is not None and not _external_drag:
@@ -608,8 +673,10 @@ def tick() -> None:
         ext_text = _get_dragging_text() if _get_dragging_text is not None else None
         if ext_text is not None and hovered:
             ext_start = max(0.0, local_x / _px_per_sec)
+            ext_row = _row_at(local_y)
+            _draw_text_ghost(ext_text, ext_start, ext_row)
             if not btn_down and _on_text_drop is not None:
-                _on_text_drop(ext_text, ext_start)
+                _on_text_drop(ext_text, ext_start, ext_row)
 
         # Curseur hover
         dpg.delete_item(_CURSOR_LAYER, children_only=True)
@@ -701,10 +768,7 @@ def zoom_out() -> None:
 
 
 def toggle_keyframes() -> None:
-    if dpg.does_item_exist("timeline_show_keyframes"):
-        new_val = not dpg.get_value("timeline_show_keyframes")
-        dpg.set_value("timeline_show_keyframes", new_val)
-        _toggle_keyframes(None, new_val)
+    _toggle_keyframes(None, not _show_keyframes)
 
 
 # ── Taille ────────────────────────────────────────────────────────────────────
@@ -924,7 +988,7 @@ def _do_delete_track(track_idx: int, dialog_tag: str) -> None:
     _redraw()
 
 
-def _draw_drag_ghost(target_row: int, new_start: float) -> None:
+def _draw_drag_ghost(target_row: int, new_start: float, incompatible: bool = False) -> None:
     if not dpg.does_item_exist(_GHOST_LAYER) or _drag_clip is None:
         return
     total_w = _content_width()
@@ -939,9 +1003,24 @@ def _draw_drag_ghost(target_row: int, new_start: float) -> None:
         parent=_GHOST_LAYER,
     )
 
-    # Si la position actuelle provoquerait un overlap → ligne jaune = future nouvelle piste
     dest_row_clips = _tracks[target_row] if 0 <= target_row < len(_tracks) else []
-    if _has_overlap(_drag_clip, dest_row_clips):
+    if incompatible:
+        # Type incompatible → ligne orange = nouvelle piste sera créée ici
+        dpg.draw_line(
+            (0, row_y), (total_w, row_y),
+            color=(255, 150, 50, 220),
+            thickness=2,
+            parent=_GHOST_LAYER,
+        )
+        dpg.draw_text(
+            (4, row_y + 2),
+            "Nouvelle piste",
+            color=(255, 150, 50, 200),
+            size=11,
+            parent=_GHOST_LAYER,
+        )
+    elif _has_overlap(_drag_clip, dest_row_clips):
+        # Overlap → ligne jaune = future nouvelle piste
         dpg.draw_line(
             (0, row_y), (total_w, row_y),
             color=(255, 210, 50, 220),
@@ -990,6 +1069,41 @@ def _draw_external_media_ghost(media, start: float, target_row: int) -> None:
             (gx + 5, gy + clip_h // 2 - 6),
             media.path.stem,
             color=(200, 255, 210, 220),
+            size=12,
+            parent=_GHOST_LAYER,
+        )
+
+
+def _draw_text_ghost(kind: str, start: float, target_row: int) -> None:
+    """Ghost violet à la position d'insertion d'un clip texte (durée fixe 5 s)."""
+    if not dpg.does_item_exist(_GHOST_LAYER):
+        return
+    from makitop.model.text import PRESETS as _PRESETS
+    label = _PRESETS[kind].label if kind in _PRESETS else kind
+    total_w = _content_width()
+    insert_y = _row_top(target_row)
+    gx = int(start * _px_per_sec)
+    gw = max(10, int(5.0 * _px_per_sec))
+    clip_h = _TRACK_H - 8
+    dpg.draw_line(
+        (0, insert_y), (total_w, insert_y),
+        color=(160, 130, 255, 180),
+        thickness=2,
+        parent=_GHOST_LAYER,
+    )
+    gy = insert_y + 4
+    dpg.draw_rectangle(
+        (gx, gy), (gx + gw, gy + clip_h),
+        fill=(130, 100, 220, 55),
+        color=(160, 130, 255, 200),
+        thickness=2,
+        parent=_GHOST_LAYER,
+    )
+    if gw >= 20:
+        dpg.draw_text(
+            (gx + 5, gy + clip_h // 2 - 6),
+            label,
+            color=(220, 200, 255, 220),
             size=12,
             parent=_GHOST_LAYER,
         )
@@ -1073,7 +1187,25 @@ def _draw_clips() -> None:
                 )
 
             _draw_clip_badges(clip, x, clip_y, w)
+    _draw_transition_spans()
     _draw_keyframes()
+
+
+def _draw_transition_spans():
+    for span in _transition_spans:
+        row = next((i for i, clips in enumerate(_tracks)
+                    if any(clip.id == span.incoming.id for clip in clips)), None)
+        if row is None:
+            continue
+        y = _row_top(row) + _TRACK_H - 15
+        x0, x1 = span.start * _px_per_sec, span.end * _px_per_sec
+        x1 = max(x0 + 4, x1)
+        dpg.draw_rectangle((x0, y), (x1, y + 11), fill=(222, 152, 88, 240),
+                           color=(255, 210, 150, 255), rounding=2, parent=_STATIC_LAYER,
+                           tag=f"timeline_transition_{span.incoming.id}")
+        if x1 - x0 >= 16:
+            dpg.draw_text((x0 + 4, y - 1), "T", color=(35, 27, 24, 255), size=11,
+                          parent=_STATIC_LAYER)
 
 
 def _draw_clip_badges(clip: BaseClip, x: int, y: int, width: int) -> None:

@@ -7,7 +7,7 @@ import pytest
 from makitop.application.projects import ProjectSession
 from makitop.model.media import Media, MediaKind
 from makitop.storage.recent import RecentProject, RecentProjects
-from makitop.ui import home, main_window, screens
+from makitop.ui import home, main_window, screens, title_bar
 from makitop.ui.dialogs import project_file, unsaved_changes
 
 
@@ -123,12 +123,15 @@ def app(context, tmp_path):
 def test_accueil_affiche_au_lancement(app):
     assert screens.home_shown()
     assert not dpg.is_item_shown(main_window.ROOT)
+    assert dpg.is_item_shown(title_bar.TAG)
+    assert not dpg.is_item_shown(title_bar.MENUS_GROUP)  # pas de menus sur l'accueil
 
 
 def test_nouveau_projet_ouvre_l_editeur(app):
     _click(home.NEW_BUTTON)
     assert not screens.home_shown()
     assert dpg.is_item_shown(main_window.ROOT)
+    assert dpg.is_item_shown(title_bar.MENUS_GROUP)
 
 
 def test_ouvrir_un_projet_de_la_liste_ouvre_l_editeur(app, tmp_path):

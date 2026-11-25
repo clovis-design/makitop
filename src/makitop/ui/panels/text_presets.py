@@ -13,6 +13,8 @@ from makitop.ui.panels import catalog_grid
 from makitop.ui.panels.catalog_grid import THUMB_H, THUMB_W
 
 REGISTRY = "text_preset_texture_registry"
+_GHOST_TAG = "text_preset_drag_ghost"
+_GHOST_TEXT_TAG = "text_preset_drag_ghost_label"
 
 _drag_candidate: str | None = None
 _drag_start_pos: tuple | None = None
@@ -24,8 +26,22 @@ def get_dragging_text() -> str | None:
     return _dragging_text if _drag_active else None
 
 
+def _ensure_ghost() -> None:
+    if dpg.does_item_exist(_GHOST_TAG):
+        return
+    with dpg.window(
+        tag=_GHOST_TAG,
+        no_title_bar=True, no_resize=True, no_move=True,
+        no_scrollbar=True, no_collapse=True, no_saved_settings=True,
+        no_focus_on_appearing=True, no_background=True,
+        autosize=True, show=False, min_size=[1, 1],
+    ):
+        dpg.add_text("", tag=_GHOST_TEXT_TAG, color=COLORS["text_main"])
+
+
 def tick() -> None:
     global _drag_candidate, _drag_start_pos, _drag_active, _dragging_text
+    _ensure_ghost()
     btn = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
     if not _drag_candidate:
         for kind in PRESETS:
@@ -39,6 +55,13 @@ def tick() -> None:
         if abs(pos[0] - _drag_start_pos[0]) > 5 or abs(pos[1] - _drag_start_pos[1]) > 5:
             _drag_active = True
             _dragging_text = _drag_candidate
+    if _drag_active and _dragging_text and dpg.does_item_exist(_GHOST_TAG):
+        pos = dpg.get_mouse_pos(local=False)
+        dpg.set_value(_GHOST_TEXT_TAG, PRESETS[_dragging_text].label)
+        dpg.configure_item(_GHOST_TAG, pos=(int(pos[0]) + 16, int(pos[1]) + 16), show=True)
+        dpg.focus_item(_GHOST_TAG)
+    elif dpg.does_item_exist(_GHOST_TAG):
+        dpg.configure_item(_GHOST_TAG, show=False)
     if not btn:
         _drag_candidate = None
         _drag_start_pos = None

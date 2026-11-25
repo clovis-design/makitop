@@ -7,7 +7,7 @@ COLUMNS = 3
 TILE_THEME = "catalog_tile_theme"
 
 
-def _load_theme() -> None:
+def load_theme() -> None:
     if dpg.does_alias_exist(TILE_THEME):
         return
     with dpg.theme(tag=TILE_THEME):
@@ -22,7 +22,7 @@ def _load_theme() -> None:
 
 
 def section(title, kinds, add_tile) -> None:
-    _load_theme()
+    load_theme()
     dpg.add_spacer(height=4)
     dpg.add_text(title)
     with dpg.table(header_row=False) as table:

@@ -19,6 +19,8 @@ from makitop.model.keyframes import GEOMETRY_PROPERTIES, INTERPOLATIONS, PROPERT
 from makitop.model.media import MediaKind
 from makitop.model.text import ALIGNMENTS, FONTS, MAX_TEXT_LENGTH
 from makitop.model.timeline import MAX_CLIP_SPEED, MIN_CLIP_SPEED, ImageClip, TextClip
+from makitop.model.transitions import CATALOG as TRANSITIONS
+from makitop.model.transitions import MAX_DURATION, MIN_DURATION
 from makitop.ui.assets.style import COLORS
 from makitop.ui.panels import inspector_icons
 
@@ -27,6 +29,7 @@ TABS = "clip_tabs"
 TAB_VIDEO = "clip_tab_video"
 TAB_AUDIO = "clip_tab_audio"
 TAB_EFFECTS = "clip_tab_effects"
+TAB_TRANSITION = "clip_tab_transition"
 TAB_KEYFRAMES = "clip_tab_keyframes"
 TAB_TEXT = "clip_tab_text"
 TEXT_CONTENT = "clip_text_content"
@@ -105,6 +108,8 @@ def create() -> None:
                     _audio_tab()
                 with dpg.tab(label="Effets", tag=TAB_EFFECTS):
                     _effects_tab()
+                with dpg.tab(label="Transition", tag=TAB_TRANSITION, show=False):
+                    _transition_tab()
                 with dpg.tab(label="Texte", tag=TAB_TEXT, show=False):
                     _text_tab()
                 with dpg.tab(label="Images clés", tag=TAB_KEYFRAMES):
@@ -211,6 +216,23 @@ def _effects_tab() -> None:
     with dpg.group(tag="clip_effects"):
         dpg.add_text(_NO_EFFECT, tag="clip_effects_empty", wrap=0, color=COLORS["label_muted"])
         dpg.add_group(tag="clip_effects_list")
+
+
+def _transition_tab() -> None:
+    dpg.add_text("", tag="clip_transition_name", wrap=0)
+    dpg.add_text("", tag="clip_transition_info", wrap=0, color=COLORS["label_muted"])
+    with _rows(), _row("Durée (s)"):
+        dpg.add_input_float(tag="clip_transition_duration", width=-1, step=0, on_enter=True,
+                            format="%.2f", min_value=MIN_DURATION, max_value=MAX_DURATION,
+                            callback=lambda s, v: _action("set_transition_duration", v))
+    dpg.add_button(label="Retirer la transition", width=-1, tag="clip_transition_remove",
+                   callback=lambda: _action("remove_transition"))
+
+
+def apply_transition(kind):
+    _action("apply_transition", kind)
+    if _editor is not None and _editor.selected_transition is not None:
+        dpg.set_value(TABS, TAB_TRANSITION)
 
 
 def _text_tab() -> None:
@@ -433,6 +455,7 @@ def refresh():
     dpg.set_value("clip_name", clip.label if clip else _EMPTY)
     if clip is None:
         return
+    _refresh_transition()
     _refresh_animation_locks(clip)
     is_text = isinstance(clip, TextClip)
     for tab in (TAB_VIDEO, TAB_EFFECTS):
@@ -505,10 +528,7 @@ def _refresh_keyframes(clip):
                            show=is_text or clip.media.kind != MediaKind.AUDIO)
     dpg.configure_item("keyframe_row_volume", show=not is_text and clip.media.has_audio)
     dpg.configure_item("keyframe_row_opacity", show=is_text)
-    if _editor.source_mode:
-        _sync_property_values(clip, _editor.project.view.playhead)
-    else:
-        tick(_editor.playback.current_time())
+    tick(_editor.playback.current_time())
     if dpg.does_alias_exist("keyframe_edit"):
         selected = next((k for k in clip.keyframes
                          if (k.property, k.time) == _editor.selected_keyframe), None)
@@ -525,6 +545,24 @@ def _refresh_keyframes(clip):
             if dpg.does_alias_exist("keyframe_interpolation"):
                 label = next(k for k, v in INTERPOLATIONS.items() if v == selected.interpolation)
                 dpg.set_value("keyframe_interpolation", label)
+
+def _refresh_transition():
+    transition = _editor.selected_transition
+    dpg.configure_item(TAB_TRANSITION, show=transition is not None)
+    if transition is None:
+        if dpg.get_value(TABS) in (TAB_TRANSITION, dpg.get_alias_id(TAB_TRANSITION)):
+            dpg.set_value(TABS, TAB_VIDEO)
+        return
+    dpg.set_value("clip_transition_name", TRANSITIONS[transition.kind])
+    dpg.set_value("clip_transition_duration", transition.duration)
+    spans = _editor.project.timeline.transition_spans()
+    span = next((item for item in spans if item.transition == transition), None)
+    if span is None:
+        info = "Inactive : vérifiez la jonction des clips et les transitions voisines."
+    else:
+        info = f"Durée utilisée : {span.end - span.start:.2f} s · Depuis {span.outgoing.media.name}"
+    dpg.set_value("clip_transition_info", info)
+
 
 
 def _refresh_animation_locks(clip):
@@ -559,8 +597,7 @@ def _open_animated_value(sender, app_data, control):
     visible = [key for key in keys if key.time <= clip.duration]
     candidates = visible or keys
     primary = [key for key in candidates if key.property == _PRIMARY_KEYS.get(control)]
-    position = (_editor.project.view.playhead if _editor.source_mode
-                else _editor.playback.current_time())
+    position = _editor.playback.current_time()
     local_time = position - clip.timeline_start
     key = min(primary or candidates, key=lambda k: (abs(k.time - local_time), k.time))
     if "kf_edit" in _collapsed:
@@ -587,7 +624,7 @@ def _key_time_changed(sender, value):
 
 def tick(position):
     """Actualise les indicateurs de clés et la position sans reconstruire les contrôles."""
-    clip = _editor.selected if _editor and not _editor.source_mode else None
+    clip = _editor.selected if _editor else None
     if clip is None:
         return
     local_time = max(0, min(clip.duration, position - clip.timeline_start))
@@ -702,6 +739,24 @@ def _refresh_geometry(t) -> None:
     dpg.set_value("clip_rotation", t.rotation)
     dpg.set_value("clip_flip_horizontal", t.flip_horizontal)
     dpg.set_value("clip_flip_vertical", t.flip_vertical)
+    for side, _ in _CROP_SIDES:
+        dpg.set_value(f"clip_crop_{side}", getattr(t, f"crop_{side}") * 100)
+
+
+def _subtitle(clip) -> str:
+    media = clip.media
+    parts = [_KINDS.get(media.kind, "Média")]
+    if media.width and media.height:
+        parts.append(f"{media.width}×{media.height}")
+    parts.append(f"{clip.duration:.1f} s")
+    return "  ·  ".join(parts)
+
+
+def _refresh_geometry(t) -> None:
+    cx, cy = center_offset(t)
+    dpg.set_value("clip_zoom", t.width * 100)
+    dpg.set_value("clip_pos_x", cx * 100)
+    dpg.set_value("clip_pos_y", cy * 100)
     for side, _ in _CROP_SIDES:
         dpg.set_value(f"clip_crop_{side}", getattr(t, f"crop_{side}") * 100)
 

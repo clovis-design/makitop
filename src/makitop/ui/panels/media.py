@@ -10,6 +10,7 @@ from makitop.media import thumbnails
 from makitop.model.media import Media, MediaKind
 from makitop.ui.panels import effects as effects_panel
 from makitop.ui.panels import text_presets
+from makitop.ui.panels import transitions as transitions_panel
 
 TAG = "media_panel"
 TITLE_TAG = "media_panel_title"
@@ -57,6 +58,7 @@ _sort_key: str = "import"
 
 # Drag & drop vers la timeline
 _hovered_media: Media | None = None
+_prev_hovered_media: Media | None = None
 _hover_set_this_tick: bool = False
 _drag_candidate: Media | None = None
 _drag_start_pos: tuple | None = None
@@ -112,7 +114,7 @@ def create(
 ) -> None:
     global _medias, _current_cols, _current_row_tag, _item_count, _on_selected, _on_add_media
     global _active_filter, _filter_active_theme, _search_query, _sort_key, _on_add_to_timeline, _on_delete_media
-    global _hovered_media, _hover_set_this_tick, _drag_candidate, _drag_start_pos
+    global _hovered_media, _prev_hovered_media, _hover_set_this_tick, _drag_candidate, _drag_start_pos
     global _dragging_media, _drag_active, _prev_btn_down
     _on_selected = on_selected
     _on_add_media = on_add_media
@@ -126,6 +128,7 @@ def create(
     _search_query = ""
     _sort_key = "import"
     _hovered_media = None
+    _prev_hovered_media = None
     _hover_set_this_tick = False
     _drag_candidate = None
     _drag_start_pos = None
@@ -419,13 +422,24 @@ def get_dragging_media() -> "Media | None":
 
 
 def tick() -> None:
-    global _hovered_media, _hover_set_this_tick, _drag_candidate, _drag_start_pos
+    global _hovered_media, _prev_hovered_media, _hover_set_this_tick, _drag_candidate, _drag_start_pos
     global _dragging_media, _drag_active, _prev_btn_down, _ghost_drawn_for
 
     # Nettoyage du hover si aucun handler n'a signalé de survol ce tick
     if not _hover_set_this_tick:
         _hovered_media = None
     _hover_set_this_tick = False
+
+    if _hovered_media is not _prev_hovered_media:
+        if _prev_hovered_media is not None:
+            tag = f"media_hover_overlay_{_prev_hovered_media.id}"
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, color=(60, 120, 175, 0), fill=(60, 120, 175, 0))
+        if _hovered_media is not None:
+            tag = f"media_hover_overlay_{_hovered_media.id}"
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, color=(60, 120, 175, 220), fill=(60, 120, 175, 35))
+        _prev_hovered_media = _hovered_media
 
     btn = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
 
@@ -492,6 +506,9 @@ def bind_delete_media(fn: Callable[[Media], None]) -> None:
 
 
 def show_section(key: str) -> None:
+    if key == "transitions" and not dpg.does_item_exist(transitions_panel.FILTER):
+        with dpg.group(parent=section_tag(key)):
+            transitions_panel.build()
     for other, title in SECTIONS:
         visible = other == key
         dpg.configure_item(section_tag(other), show=visible)
@@ -669,6 +686,16 @@ def _draw_overlays(draw_tag: str, media: Media) -> None:
         (tw - 1, th - 1),
         color=_THUMB_BORDER_COLOR,
         fill=(0, 0, 0, 0),
+        parent=draw_tag,
+    )
+    dpg.draw_rectangle(
+        (0, 0),
+        (tw - 1, th - 1),
+        color=(60, 120, 175, 0),
+        fill=(60, 120, 175, 0),
+        thickness=2,
+        rounding=4,
+        tag=f"media_hover_overlay_{media.id}",
         parent=draw_tag,
     )
 

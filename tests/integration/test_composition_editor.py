@@ -181,3 +181,60 @@ def test_timeline_drag_and_trim(editor, video_file, monkeypatch):
     assert editor.selected.duration == pytest.approx(1 - 8 / 30)
     assert editor.selected.id == clip.id
     assert not errors
+
+
+@pytest.mark.parametrize("kind,angle", [("video", 0), ("video", 90), ("text", 0)])
+def test_preview_resize_axes_independently(editor, video_file, monkeypatch, kind, angle):
+    editor, errors = editor
+    if kind == "video":
+        clip = editor.add_media(probe(video_file))
+        if angle:
+            editor.update_clip(clip.id, transform=Transform(x=0.2, y=0.2, width=0.6, height=0.6))
+        editor.set_clip_orientation(rotation=angle)
+    else:
+        editor.add_text("title")
+    point = []
+    monkeypatch.setattr(preview, "_mouse", lambda: tuple(point))
+    sw, sh = preview._size
+
+    def drag(handle, delta):
+        handles = preview._handles(preview._bounds(editor.selected), False, angle)
+        point[:] = handles[handle]
+        preview._click()
+        dx, dy = rotate_point(delta, (0, 0), angle, sw / sh)
+        point[:] = [point[0] + dx, point[1] + dy]
+        preview._drag()
+        preview._release()
+
+    original = preview._bounds(editor.selected)
+    left = preview._handles(original, False, angle)["left"]
+    assert dpg.does_item_exist("preview_handle_right")
+    assert dpg.does_item_exist("preview_handle_bottom")
+    drag("right", (-0.12, 0.06))
+    horizontal = preview._bounds(editor.selected)
+    assert horizontal[2:] == pytest.approx((original[2] - 0.12, original[3]))
+    assert preview._handles(horizontal, False, angle)["left"] == pytest.approx(left)
+    top = preview._handles(horizontal, False, angle)["top"]
+    drag("bottom", (0.06, -0.12))
+    vertical = preview._bounds(editor.selected)
+    assert vertical[2:] == pytest.approx((horizontal[2], horizontal[3] - 0.12))
+    assert preview._handles(vertical, False, angle)["top"] == pytest.approx(top)
+    assert editor.selected.transform.stretch == (kind == "video")
+    assert not errors
+
+
+def test_preview_vertical_resize_preserves_animated_zoom(editor, monkeypatch):
+    editor, errors = editor
+    editor.add_text("title")
+    editor.toggle_keyframe("zoom")
+    editor.set_selected_keyframe_value(0.6)
+    bounds = preview._bounds(editor.selected)
+    point = list(preview._handles(bounds, False)["bottom"])
+    monkeypatch.setattr(preview, "_mouse", lambda: tuple(point))
+    preview._click()
+    point[1] -= 0.1
+    preview._drag()
+    preview._release()
+    assert preview._bounds(editor.selected)[2:] == pytest.approx((0.6, bounds[3] - 0.1))
+    assert editor.selected.keyframes[0].value == pytest.approx(0.6)
+    assert not errors

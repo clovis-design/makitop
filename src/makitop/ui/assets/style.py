@@ -8,6 +8,7 @@ COLORS = {
     "bg_panel": (11, 17, 41, 255),
     "text_main": (220, 220, 225, 255),
     "border": (45, 45, 50, 255),
+    "title_bar": (14, 20, 52, 255),  # entre bg_panel et bg_main
     # Inspecteur (panneau Propriétés)
     "section_header": (28, 36, 86, 255),
     "section_hover": (38, 48, 108, 255),

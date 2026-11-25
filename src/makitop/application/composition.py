@@ -12,6 +12,7 @@ from makitop.model.media import MediaKind
 from makitop.model.project import Project
 from makitop.model.text import PRESETS
 from makitop.model.timeline import ImageClip, MediaClip, TextClip, Timeline
+from makitop.model.transitions import Transition, span_for
 
 
 class CompositionEditor:
@@ -21,7 +22,6 @@ class CompositionEditor:
         self.on_refresh = on_refresh
         self.selected_id = None
         self.selected_keyframe = None
-        self.source_mode = False
         self._clipboard = None
         self._undo_stack: list = []
         self._redo_stack: list = []
@@ -37,20 +37,8 @@ class CompositionEditor:
 
     def show_montage(self, position=None):
         if position is None:
-            position = 0 if self.source_mode else self.playback.current_time()
-        self.source_mode = False
+            position = self.playback.current_time()
         self.playback.set_project(self.project, position)
-        self.on_refresh()
-
-    def preview_source(self, media):
-        clip = self._new_clip(media, 0, 0)
-        self.source_mode = True
-        self.playback.set_project(Project(
-            media=[media], timeline=Timeline(
-                clips=[clip], fps=min(120, max(1, ceil(media.fps or self.project.timeline.fps))),
-            ),
-            canvas_format=self.project.canvas_format,
-        ))
         self.on_refresh()
 
     @staticmethod
@@ -64,7 +52,7 @@ class CompositionEditor:
     def add_media(self, media, start=None):
         self.push_undo()
         if start is None:
-            start = 0 if self.source_mode else self.playback.current_time()
+            start = self.playback.current_time()
         track = max((c.track for c in self.project.timeline.clips), default=-1) + 1
         clip = self._new_clip(media, start, track)
         self.project.timeline.add_clip(clip)
@@ -72,17 +60,22 @@ class CompositionEditor:
         self._edited(start)
         return clip
 
-    def add_text(self, preset: str, start: float | None = None) -> TextClip:
+    def add_text(self, preset: str, start: float | None = None,
+                 new_track: bool = False) -> TextClip:
+        self.push_undo()
         template = PRESETS[preset]
         if start is None:
-            start = self.project.view.playhead if self.source_mode else self.playback.current_time()
+            start = self.playback.current_time()
         duration = 5.0
         clips = self.project.timeline.clips
         front_media = max((c.track for c in clips if not isinstance(c, TextClip)), default=-1)
-        occupied = {c.track for c in clips
-                    if start < c.timeline_end and c.timeline_start < start + duration}
-        track = next((track for track in range(front_media + 1, 100)
-                      if track not in occupied), None)
+        if new_track:
+            track = max((c.track for c in clips), default=-1) + 1
+        else:
+            occupied = {c.track for c in clips
+                        if start < c.timeline_end and c.timeline_start < start + duration}
+            track = next((track for track in range(front_media + 1, 100)
+                          if track not in occupied), None)
         if track is None:
             raise ValueError("Aucune piste libre au premier plan à cet instant.")
         clip = TextClip(start, duration, template.content, style=template.style,
@@ -124,26 +117,124 @@ class CompositionEditor:
             return
         factor = clip.speed / updated.speed
         keys = tuple(replace(key, time=key.time * factor) for key in clip.keyframes)
-        current = (self.project.view.playhead if self.source_mode
-                   else self.playback.current_time())
-        if not self.source_mode and clip.timeline_start <= current <= clip.timeline_end:
+        current = self.playback.current_time()
+        if clip.timeline_start <= current <= clip.timeline_end:
             current = clip.timeline_start + (current - clip.timeline_start) * factor
         if self.selected_keyframe is not None:
             name, time = self.selected_keyframe
             self.selected_keyframe = (name, time * factor)
         self.update_clip(clip.id, speed=updated.speed, keyframes=keys, position=current)
 
+    def resize_animated_box(self, displayed, zoom_scale):
+        """Applique la boîte visible en tenant compte d'une courbe de zoom existante."""
+        clip = self.selected
+        if clip is None:
+            return
+        time = self.keyframe_time(clip)
+        before = clip.unzoomed_transform_at(time)
+        scale = max(zoom_scale, displayed.width / 8, displayed.height / 8)
+        width, height = displayed.width / scale, displayed.height / scale
+        box = replace(
+            displayed, width=width, height=height,
+            x=displayed.x + (displayed.width - width) / 2,
+            y=displayed.y + (displayed.height - height) / 2,
+        )
+        keys = clip.keyframes
+        base = {}
+        selected = self.selected_keyframe
+        for name in ("x", "y", "width", "height"):
+            if curve(keys, name):
+                value = getattr(box, name)
+                if abs(value - getattr(before, name)) > 1e-9:
+                    keys = self._value_key(keys, name, time, value)
+                    selected = (name, time)
+                base[name] = getattr(clip.transform, name)
+        if abs(displayed.width - clip.transform_at(time).width) > 1e-9:
+            keys = self._value_key(keys, "zoom", time, displayed.width)
+            selected = ("zoom", time)
+        transform = replace(box, **base)
+        self.selected_keyframe = selected
+        self.update_clip(clip.id, transform=transform, keyframes=keys, animate_transform=False)
+
     def select(self, clip_id):
         if clip_id != self.selected_id:
             self.selected_keyframe = None
         self.selected_id = clip_id
         clip = self.selected
-        if clip is not None and (self.source_mode or not (
+        if clip is not None and not (
             clip.timeline_start <= self.playback.current_time() < clip.timeline_end
-        )):
+        ):
             self.show_montage(clip.timeline_start)
         else:
             self.on_refresh()
+
+    @property
+    def selected_transition(self):
+        return next((t for t in self.project.timeline.transitions
+                     if t.incoming_id == self.selected_id), None)
+
+    def apply_transition(self, kind):
+        incoming = self.selected
+        if (not isinstance(incoming, (ImageClip, MediaClip))
+                or incoming.media.kind == MediaKind.AUDIO):
+            raise ValueError("Sélectionnez le clip d’arrivée dans la timeline.")
+        timeline = self.project.timeline
+        previous = self.selected_transition
+        cut = incoming.timeline_start
+        candidates = [
+            clip for clip in timeline.clips if isinstance(clip, (ImageClip, MediaClip))
+            and clip.media.kind != MediaKind.AUDIO
+            and clip.timeline_start < cut - 1e-8
+            and clip.timeline_end >= cut - 1 / timeline.fps - 1e-8
+        ]
+        if not candidates:
+            raise ValueError("Le clip d’arrivée doit toucher ou chevaucher un clip précédent.")
+        outgoing = max(candidates, key=lambda clip: (
+            previous is not None and clip.id == previous.outgoing_id,
+            clip.track == incoming.track, clip.timeline_start, clip.track,
+        ))
+        if any(t.outgoing_id == outgoing.id and t.incoming_id != incoming.id
+               for t in timeline.transitions):
+            raise ValueError("Le clip précédent est déjà relié à une autre transition.")
+        transition = Transition(
+            outgoing.id, incoming.id, kind, previous.duration if previous else 0.8,
+        )
+        span = span_for(transition, outgoing, incoming, 1 / timeline.fps)
+        if span is None:
+            raise ValueError("Impossible de placer une transition à cette jonction.")
+        if transition == previous:
+            self._preview_transition(transition)
+            return
+        self.push_undo()
+        timeline.transitions = (*(
+            t for t in timeline.transitions if t.incoming_id != incoming.id
+        ), transition)
+        self._preview_transition(transition)
+
+    def set_transition_duration(self, seconds):
+        current = self.selected_transition
+        if current is None:
+            return
+        updated = replace(current, duration=round(seconds, 3))
+        if updated == current:
+            return
+        self.push_undo()
+        timeline = self.project.timeline
+        timeline.transitions = tuple(updated if t is current else t for t in timeline.transitions)
+        self._preview_transition(updated)
+
+    def _preview_transition(self, transition):
+        spans = self.project.timeline.transition_spans()
+        span = next((item for item in spans if item.transition == transition), None)
+        self._edited((span.start + span.end) / 2 if span is not None else None)
+
+    def remove_transition(self):
+        current = self.selected_transition
+        if current is not None:
+            self.push_undo()
+            timeline = self.project.timeline
+            timeline.transitions = tuple(t for t in timeline.transitions if t is not current)
+            self._edited()
 
     def update_clip(self, clip_id, *, position=None, animate_transform=True, **changes):
         self.push_undo()
@@ -386,23 +477,12 @@ class CompositionEditor:
         self._edited()
 
     def seek(self, position):
-        if self.source_mode:
-            self.show_montage(position)
-        else:
-            self.playback.seek(position)
+        self.playback.seek(position)
 
     def sync_playhead(self):
-        """Reporte la position de lecture dans le projet (appelé à chaque image).
-
-        Elle est enregistrée avec le projet ; la déplacer (clic, lecture, Stop) le
-        marque comme modifié. L'aperçu d'un média seul ne touche pas au montage.
-        """
-        if self.source_mode:
-            return
+        """Reporte la position de lecture dans le projet (appelé à chaque image)."""
         position = round(self.playback.current_time(), 3)
-        if position != self.project.view.playhead:
-            self.project.view.playhead = position
-            self.session.mark_dirty()
+        self.project.view.playhead = position
 
     def rows(self):
         """Clips dans l'ordre des lignes de la timeline : de la piste du fond (0) vers
@@ -600,7 +680,7 @@ class CompositionEditor:
         self.project.timeline = snapshot["timeline"]
         self.selected_id = snapshot["selected_id"]
         self.selected_keyframe = snapshot["selected_keyframe"]
-        playing = self.playback.is_playing() and not self.source_mode
+        playing = self.playback.is_playing()
         self.session.mark_dirty()
         self.show_montage(snapshot["position"])
         if playing:
@@ -615,7 +695,7 @@ class CompositionEditor:
         return bool(self._redo_stack)
 
     def _edited(self, position=None):
-        playing = self.playback.is_playing() and not self.source_mode
+        playing = self.playback.is_playing()
         self.session.mark_dirty()
         self.show_montage(position)
         if playing:
