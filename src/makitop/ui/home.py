@@ -10,6 +10,7 @@ import dearpygui.dearpygui as dpg
 
 from makitop.storage.recent import RecentProject
 from makitop.ui.assets.style import COLORS, FONT_INTER, LOGO_TITLE
+from makitop.ui.layout import TITLE_BAR_HEIGHT
 
 TAG = "home_window"
 CONTENT_TAG = "home_content"
@@ -36,7 +37,7 @@ def create(on_new: Callable[[], None], on_open: Callable[[], None]) -> None:
         no_resize=True,
         no_scrollbar=True,
     ):
-        dpg.add_spacer(height=30)
+        dpg.add_spacer(height=30 + TITLE_BAR_HEIGHT)  # sous la barre de titre
         with dpg.child_window(tag=CONTENT_TAG, width=CONTENT_WIDTH, border=False):
             _add_logo()
             dpg.add_text("Logiciel de montage vidéo", color=_MUTED)
@@ -100,8 +101,8 @@ def set_projects(projects: list[RecentProject], on_select: Callable[[Path], None
 
 def resize(width: int, height: int) -> None:
     """Centre le contenu dans la fenêtre."""
-    dpg.set_item_pos(CONTENT_TAG, [max((width - CONTENT_WIDTH) // 2, 16), 40])
-    dpg.configure_item(CONTENT_TAG, height=max(height - 60, 200))
+    dpg.set_item_pos(CONTENT_TAG, [max((width - CONTENT_WIDTH) // 2, 16), 40 + TITLE_BAR_HEIGHT])
+    dpg.configure_item(CONTENT_TAG, height=max(height - 60 - TITLE_BAR_HEIGHT, 200))
 
 
 def format_last_used(when: datetime | None, now: datetime) -> str:

@@ -35,7 +35,10 @@ def editor(tmp_path, monkeypatch):
 
 def test_properties_create_animate_and_select_keyframes(editor, image_file):
     editor, errors = editor
+    assert dpg.get_item_type("timeline_copy_clip") == "mvAppItemType::mvImageButton"
+    assert not dpg.get_item_configuration("timeline_copy_clip")["enabled"]
     editor.add_media(probe(image_file))
+    assert dpg.get_item_configuration("timeline_copy_clip")["enabled"]
     assert not dpg.get_item_configuration("keyframe_row_volume")["show"]
     dpg.get_item_callback("keyframe_add_x")(None, None, "x")
     editor.seek(2)
@@ -50,9 +53,12 @@ def test_properties_create_animate_and_select_keyframes(editor, image_file):
     assert dpg.get_value("keyframe_hint_x") == "Retirer une clé « Position X » à 2.000 s"
     assert dpg.does_item_exist(f"key_badge_{editor.selected_id}")
     assert not dpg.does_item_exist("timeline_delete_keyframe")
-    assert not dpg.get_value("timeline_show_keyframes")
+    assert not panel._show_keyframes
+    assert not dpg.get_item_theme("timeline_show_keyframes")
     assert list(panel._key_positions()) == []
-    dpg.get_item_callback("timeline_show_keyframes")("timeline_show_keyframes", True)
+    dpg.get_item_callback("timeline_show_keyframes")()
+    assert panel._show_keyframes
+    assert dpg.get_item_theme("timeline_show_keyframes")  # bouton surligné
     assert len(list(panel._key_positions())) == 2
     assert editor.selected.id in timeline.get_clip_ids()  # images fixes aussi
     editor.seek(1)

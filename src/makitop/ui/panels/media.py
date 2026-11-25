@@ -10,6 +10,7 @@ from makitop.media import thumbnails
 from makitop.model.media import Media, MediaKind
 from makitop.ui.panels import effects as effects_panel
 from makitop.ui.panels import text_presets
+from makitop.ui.panels import transitions as transitions_panel
 
 TAG = "media_panel"
 TITLE_TAG = "media_panel_title"
@@ -505,6 +506,9 @@ def bind_delete_media(fn: Callable[[Media], None]) -> None:
 
 
 def show_section(key: str) -> None:
+    if key == "transitions" and not dpg.does_item_exist(transitions_panel.FILTER):
+        with dpg.group(parent=section_tag(key)):
+            transitions_panel.build()
     for other, title in SECTIONS:
         visible = other == key
         dpg.configure_item(section_tag(other), show=visible)

@@ -13,14 +13,16 @@ from makitop.application.projects import ProjectSession
 from makitop.application.timeline_playback import TimelinePlaybackController
 from makitop.model.media import Media
 from makitop.storage.recent import RecentProjects, config_dir
-from makitop.ui import home, main_window, menu_bar, screens, shortcuts
-from makitop.ui.assets.style import LOGO
+from makitop.ui import home, main_window, menu_bar, screens, shortcuts, title_bar, win32_window
+from makitop.ui.assets.style import COLORS, LOGO
 from makitop.ui.dialogs import import_media, message, project_file
 from makitop.ui.dialogs.export_video import ExportDialog
+from makitop.ui.native_cursor import NativeCursor
 from makitop.ui.panels import effects as effects_panel
 from makitop.ui.panels import media as media_panel
 from makitop.ui.panels import preview, properties, text_presets
 from makitop.ui.panels import timeline as timeline_panel
+from makitop.ui.panels import transitions as transitions_panel
 
 TITLE = f"Makitop {__version__}"
 DEFAULT_WIDTH = 1660
@@ -37,6 +39,7 @@ def main() -> None:
     importer = MediaImporter(lambda: session.project, executor)
     playback_controller = TimelinePlaybackController()
     editor = CompositionEditor(session, playback_controller)
+    native_cursor = None
 
     def refresh_editor():
         preview.refresh()
@@ -107,6 +110,7 @@ def main() -> None:
             on_add_to_timeline=on_add_to_timeline,
             block_shortcuts=export_dialog.blocks_editor,
             on_add_text=on_add_text,
+            on_close=project_file.quit_app,
         )
         home.create(on_new=project_file.new_project, on_open=project_file.open_dialog)
         import_media.create(on_files_selected=importer.import_files)
@@ -165,6 +169,7 @@ def main() -> None:
         properties.bind(editor, composition_error)
         timeline_panel.bind(editor, composition_error)
         effects_panel.bind(apply_effect)
+        transitions_panel.bind(properties.apply_transition)
         editor.on_refresh = refresh_editor
         editor.show_montage(0)
         project_file.create(session)
@@ -195,9 +200,12 @@ def main() -> None:
             title=TITLE,
             width=DEFAULT_WIDTH,
             height=DEFAULT_HEIGHT,
-            min_width=1500,
-            min_height=600,
+            min_width=title_bar.MIN_WIDTH,
+            min_height=title_bar.MIN_HEIGHT,
             disable_close=True,
+            # Barre native masquée : ui/title_bar.py la remplace.
+            decorated=False,
+            clear_color=COLORS["bg_panel"],
             small_icon=icon,
             large_icon=icon,
         )
@@ -205,10 +213,13 @@ def main() -> None:
         dpg.set_viewport_resize_callback(lambda: screens.resize())
         dpg.setup_dearpygui()
         dpg.show_viewport()
+        title_bar.setup_window(win32_window.find_hwnd(TITLE))
+        native_cursor = NativeCursor.load()
         _poll_error_shown = False
         show_home()
         while dpg.is_dearpygui_running():
             dpg.run_callbacks(dpg.get_callback_queue())
+            title_bar.tick()
 
             current_time = playback_controller.current_time()
             editor.sync_playhead()
@@ -227,14 +238,26 @@ def main() -> None:
                     _poll_error_shown = True
                     message.show("Lecture impossible", str(exc))
 
-            if not export_dialog.blocks_editor():
+            editor_blocked = export_dialog.blocks_editor()
+            if not editor_blocked:
                 timeline_panel.tick()
                 media_panel.tick()
                 text_presets.tick()
             export_dialog.tick()
+            cue = (
+                preview.pointer_cue()
+                if native_cursor and not editor_blocked and not screens.home_shown() else None
+            )
+            if native_cursor:
+                if cue is None:
+                    native_cursor.reset()
+                else:
+                    native_cursor.apply(cue)
             dpg.render_dearpygui_frame()
 
     finally:
+        if native_cursor is not None:
+            native_cursor.close()
         if export_dialog is not None:
             export_dialog.close()
         executor.shutdown(wait=True, cancel_futures=True)
@@ -284,7 +307,7 @@ def _show_project_media(session: ProjectSession, executor: Executor) -> None:
 
 def _refresh_title_and_projects(session: ProjectSession) -> None:
     on_home = screens.home_shown()
-    dpg.set_viewport_title(TITLE if on_home else f"{session.title} - {TITLE}")
+    title_bar.set_title(TITLE if on_home else f"{session.title} - {TITLE}")
     projects = session.recent.entries()
     menu_bar.set_recent_projects(
         [p.path for p in projects[:MENU_RECENT_COUNT]], project_file.open_recent

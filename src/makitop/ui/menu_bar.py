@@ -44,25 +44,33 @@ def create(
     shortcuts: dict[str, str] | None = None,
 ) -> None:
     """`shortcuts` associe un libellé d'entrée au raccourci affiché (ex. « Ctrl+S »)."""
+    with dpg.menu_bar():
+        add_menus(actions, shortcuts)
+
+
+def add_menus(
+    actions: dict[str, Callable[[], None]] | None = None,
+    shortcuts: dict[str, str] | None = None,
+) -> None:
+    """Ajoute les menus dans le conteneur courant (barre de menus ou barre de titre)."""
     actions = actions or {}
     shortcuts = shortcuts or {}
-    with dpg.menu_bar():
-        for menu, items in MENUS.items():
-            with dpg.menu(label=menu):
-                for item in items:
-                    if item == RECENT_PROJECTS:
-                        # Sous-menu rempli par set_recent_projects.
-                        with dpg.menu(label=item, tag=RECENT_MENU_TAG):
-                            _add_empty_recent()
-                        continue
-                    action = actions.get(item)
-                    dpg.add_menu_item(
-                        tag=item_tag(item),
-                        label=item,
-                        shortcut=shortcuts.get(item, ""),
-                        enabled=action is not None,
-                        callback=_run(action) if action else None,
-                    )
+    for menu, items in MENUS.items():
+        with dpg.menu(label=menu):
+            for item in items:
+                if item == RECENT_PROJECTS:
+                    # Sous-menu rempli par set_recent_projects.
+                    with dpg.menu(label=item, tag=RECENT_MENU_TAG):
+                        _add_empty_recent()
+                    continue
+                action = actions.get(item)
+                dpg.add_menu_item(
+                    tag=item_tag(item),
+                    label=item,
+                    shortcut=shortcuts.get(item, ""),
+                    enabled=action is not None,
+                    callback=_run(action) if action else None,
+                )
 
 
 def set_recent_projects(paths: list[Path], on_select: Callable[[Path], None]) -> None:

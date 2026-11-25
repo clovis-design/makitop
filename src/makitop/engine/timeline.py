@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageOps
 
-from makitop.engine import text
+from makitop.engine import text, transitions
 from makitop.engine.cache import FrameCache
 from makitop.engine.decoder import MediaDecoder
 from makitop.engine.effects import video as video_effects
@@ -41,6 +41,19 @@ class TimelineRenderer:
             )
         clips = [c for c in project.timeline.clips_at(time)
                  if isinstance(c, TextClip) or c.media.kind != MediaKind.AUDIO]
+        active, hidden = [], set()
+        for span in project.timeline.transition_spans():
+            if span.start <= time < span.end:
+                pair = {span.incoming.id, span.outgoing.id}
+                if hidden.isdisjoint(pair):
+                    hidden.update(pair)
+                    active.append(span)
+            elif span.end <= time < span.suppress_until:
+                hidden.add(span.outgoing.id)
+        if hidden:
+            clips = [c for c in clips if c.id not in hidden]
+        if active:
+            return self._render_transitions(clips, active, time, frame_index, width, height)
         sources = []
         local_times = [time - c.timeline_start for c in clips]
         transforms = [c.transform_at(t) for c, t in zip(clips, local_times, strict=True)]
@@ -49,8 +62,7 @@ class TimelineRenderer:
                 sources.append((("text", clip.content, clip.style, clip.opacity_at(local_time),
                                  clip.font_scale_at(local_time, transform)), None))
                 continue
-            stat = clip.media.path.stat()
-            identity = (str(clip.media.path.resolve()), stat.st_mtime_ns, stat.st_size)
+            identity = self._identity(clip)
             source_time = clip.source_time_at(time) if isinstance(clip, MediaClip) else None
             sources.append((identity, None if source_time is None else round(source_time, 9)))
         # Une image fixe avec un effet animé change à chaque frame : le temps local
@@ -76,6 +88,46 @@ class TimelineRenderer:
             self._composite(result, image, transform, clip.effects,
                             local_t, clip.duration, frame_index)
         self.cache.put(key, result)
+        return result
+
+    @staticmethod
+    def _identity(clip):
+        stat = clip.media.path.stat()
+        return str(clip.media.path.resolve()), stat.st_mtime_ns, stat.st_size
+
+    def _draw_at(self, canvas, clip, time, frame_index):
+        local = min(clip.duration, max(0, time - clip.timeline_start))
+        transform = clip.transform_at(local)
+        if isinstance(clip, TextClip):
+            text.composite(canvas, clip.content, clip.style, transform,
+                           opacity=clip.opacity_at(local),
+                           font_scale=clip.font_scale_at(local, transform))
+            return
+        source = None
+        if isinstance(clip, MediaClip):
+            # Utiliser les poignées du rush si disponibles. Sinon garder l'image de bord.
+            source = max(0, clip.source_start + (time - clip.timeline_start) * clip.speed)
+            if clip.media.duration is not None:
+                source = min(source, max(0, clip.media.duration - 1e-6))
+        image = self._source(clip, self._identity(clip), source)
+        self._composite(canvas, image, transform, clip.effects, local, clip.duration, frame_index)
+
+    def _render_transitions(self, clips, spans, time, frame_index, width, height):
+        result = np.zeros((height, width, 3), dtype=np.uint8)
+        layers = [(clip.track, clip, None) for clip in clips]
+        layers.extend((max(span.incoming.track, span.outgoing.track), None, span)
+                      for span in spans)
+        for _, clip, span in sorted(layers, key=lambda entry: entry[0]):
+            if span is None:
+                self._draw_at(result, clip, time, frame_index)
+                continue
+            a = np.zeros((height, width, 4), dtype=np.uint8)
+            b = np.zeros_like(a)
+            self._draw_at(a, span.outgoing, time, frame_index)
+            self._draw_at(b, span.incoming, time, frame_index)
+            rgba = transitions.blend(a, b, span.transition.kind, span.progress(time))
+            alpha = rgba[..., 3:4].astype(np.float32) / 255
+            result[:] = np.clip(np.rint(rgba[..., :3] + result * (1 - alpha)), 0, 255)
         return result
 
     def _source(self, clip, identity, source_time):
@@ -148,6 +200,15 @@ class TimelineRenderer:
             TimelineRenderer._composite_rotated(target, scaled, matrix)
             return
         scaled = scaled[y0 - y:y1 - y, x0 - x:x1 - x]
+        if target.shape[2] == 4:
+            if scaled.shape[2] == 4:
+                target[..., 3] = scaled[..., 3]
+                alpha = scaled[..., 3:4].astype(np.float32) / 255
+                target[..., :3] = np.rint(scaled[..., :3] * alpha)
+            else:
+                target[..., :3] = scaled
+                target[..., 3] = 255
+            return
         if scaled.shape[2] == 4:
             alpha = scaled[:, :, 3:4].astype(np.float32) / 255
             target[:] = np.rint(scaled[:, :, :3] * alpha + target * (1 - alpha)).astype(np.uint8)
@@ -163,7 +224,11 @@ class TimelineRenderer:
         rgba[..., :3] *= rgba[..., 3:4]
         height, width = target.shape[:2]
         rotated = cv2.warpAffine(rgba, matrix, (width, height), flags=cv2.INTER_LINEAR)
-        target[:] = np.rint(rotated[..., :3] + target * (1 - rotated[..., 3:4])).astype(np.uint8)
+        if target.shape[2] == 4:
+            target[..., :3] = np.rint(rotated[..., :3])
+            target[..., 3] = np.rint(rotated[..., 3] * 255)
+        else:
+            target[:] = np.rint(rotated[..., :3] + target * (1 - rotated[..., 3:4]))
 
     def close(self):
         for decoder in self.decoders.values():

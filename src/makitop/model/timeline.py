@@ -10,8 +10,9 @@ from dataclasses import dataclass, field, replace
 from makitop.model.composition import Transform, with_zoom
 from makitop.model.effects import Effect
 from makitop.model.keyframes import GEOMETRY_PROPERTIES, Keyframe, curve, value_at
-from makitop.model.media import Media
+from makitop.model.media import Media, MediaKind
 from makitop.model.text import MAX_TEXT_LENGTH, TextStyle
+from makitop.model.transitions import Transition, span_for
 
 MIN_CLIP_SPEED, MAX_CLIP_SPEED = 0.25, 8.0
 
@@ -184,12 +185,45 @@ class TextClip(BaseClip):
 class Timeline:
     clips: list[BaseClip] = field(default_factory=list)
     fps: int = 30
+    transitions: tuple[Transition, ...] = ()
 
     def __post_init__(self):
         if type(self.fps) is not int or not 1 <= self.fps <= 120:
             raise ValueError("Cadence invalide.")
         if len({c.id for c in self.clips}) != len(self.clips):
             raise ValueError("Identifiants de clips dupliqués.")
+        clips = {c.id for c in self.clips
+                 if isinstance(c, (ImageClip, MediaClip)) and c.media.kind != MediaKind.AUDIO}
+        if (not isinstance(self.transitions, tuple)
+                or any(not isinstance(t, Transition) or t.incoming_id not in clips
+                       or t.outgoing_id not in clips for t in self.transitions)
+                or len({t.incoming_id for t in self.transitions}) != len(self.transitions)
+                or len({t.outgoing_id for t in self.transitions}) != len(self.transitions)):
+            raise ValueError("Transitions de montage invalides.")
+
+    def transition_spans(self):
+        if not self.transitions:
+            return []
+        clips = {clip.id: clip for clip in self.clips}
+        spans = []
+        for transition in self.transitions:
+            outgoing = clips.get(transition.outgoing_id)
+            incoming = clips.get(transition.incoming_id)
+            if outgoing is not None and incoming is not None:
+                span = span_for(transition, outgoing, incoming, 1 / self.fps)
+                if span is not None:
+                    spans.append(span)
+        # Un même calque ne peut pas être fondu par deux transitions à la fois.
+        ordered = []
+        occupied_until = {}
+        for span in sorted(spans, key=lambda item: (item.start, item.incoming.track)):
+            ids = span.outgoing.id, span.incoming.id
+            start = max(span.start, *(occupied_until.get(clip_id, 0) for clip_id in ids))
+            if start >= span.end - 1e-8:
+                continue
+            ordered.append(span if start == span.start else replace(span, start=start))
+            occupied_until.update(dict.fromkeys(ids, span.end))
+        return ordered
 
     def clips_at(self, position):
         """Calques actifs du fond vers le premier plan (piste supérieure)."""
@@ -215,3 +249,5 @@ class Timeline:
 
     def remove_clip(self, clip_id: str) -> None:
         self.clips = [c for c in self.clips if c.id != clip_id]
+        self.transitions = tuple(t for t in self.transitions
+                                 if clip_id not in (t.incoming_id, t.outgoing_id))
