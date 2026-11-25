@@ -2,9 +2,12 @@
 
 import dearpygui.dearpygui as dpg
 
+from makitop.ui.dialogs import center_window
+
 TAG = "message_window"
 TEXT_TAG = "message_window_text"
 WIDTH = 450
+HEIGHT = 110
 
 
 def create() -> None:
@@ -24,8 +27,6 @@ def create() -> None:
 def show(title: str, text: str) -> None:
     dpg.configure_item(TAG, label=title)
     dpg.set_value(TEXT_TAG, text)
-    if dpg.is_viewport_ok():  # pas de viewport dans les tests
-        x = max((dpg.get_viewport_client_width() - WIDTH) // 2, 0)
-        dpg.set_item_pos(TAG, [x, dpg.get_viewport_client_height() // 3])
+    center_window(TAG, WIDTH, HEIGHT)
     dpg.show_item(TAG)
     dpg.focus_item(TAG)

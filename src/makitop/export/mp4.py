@@ -13,6 +13,7 @@ import numpy as np
 from makitop.engine.audio import SAMPLE_RATE, TimelineAudioRenderer
 from makitop.engine.timeline import TimelineRenderer
 from makitop.model.composition import FORMATS
+from makitop.model.timeline import TextClip
 
 
 class ExportCancelled(Exception):
@@ -53,7 +54,9 @@ def export_mp4(project, path, *, settings=None, progress=None, cancel=None):
         path = path.with_name(path.name + ".mp4")
     if project.timeline.duration <= 0:
         raise ValueError("La timeline est vide. Ajoutez un média avant d'exporter.")
-    sources = [m.path for m in project.media] + [c.media.path for c in project.timeline.clips]
+    sources = [m.path for m in project.media] + [
+        c.media.path for c in project.timeline.clips if not isinstance(c, TextClip)
+    ]
     if any(path.resolve() == source.resolve() for source in sources):
         raise ValueError("Le fichier exporté ne peut pas remplacer un média source.")
     width, height = FORMATS[project.canvas_format]

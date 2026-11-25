@@ -19,7 +19,7 @@ from makitop.ui.dialogs import import_media, message, project_file
 from makitop.ui.dialogs.export_video import ExportDialog
 from makitop.ui.panels import effects as effects_panel
 from makitop.ui.panels import media as media_panel
-from makitop.ui.panels import preview, properties
+from makitop.ui.panels import preview, properties, text_presets
 from makitop.ui.panels import timeline as timeline_panel
 
 TITLE = f"Makitop {__version__}"
@@ -64,6 +64,12 @@ def main() -> None:
         except ValueError as exc:
             composition_error(str(exc))
 
+    def on_add_text(preset: str) -> None:
+        try:
+            editor.add_text(preset)
+        except ValueError as exc:
+            composition_error(str(exc))
+
     def refresh_project_media() -> None:
         preview.clear()
         timeline_panel.clear()
@@ -100,6 +106,7 @@ def main() -> None:
             on_media_selected=select_media,
             on_add_to_timeline=on_add_to_timeline,
             block_shortcuts=export_dialog.blocks_editor,
+            on_add_text=on_add_text,
         )
         home.create(on_new=project_file.new_project, on_open=project_file.open_dialog)
         import_media.create(on_files_selected=importer.import_files)
@@ -108,28 +115,53 @@ def main() -> None:
 
         def _on_playback_key(sender, key: int) -> None:
             if (screens.home_shown() or export_dialog.blocks_editor()
-                    or shortcuts.text_input_active()):
+                    or shortcuts.text_input_active()
+                    or dpg.is_item_active(properties.TEXT_CONTENT)):
                 return
+            ctrl = dpg.is_key_down(dpg.mvKey_LControl) or dpg.is_key_down(dpg.mvKey_RControl)
             if key == dpg.mvKey_F and not shortcuts.ctrl_down():
                 main_window.toggle_fullscreen()
             elif key == dpg.mvKey_Escape and main_window.is_fullscreen():
                 main_window.set_fullscreen(False)
-            elif key == dpg.mvKey_Spacebar:
+            elif key == dpg.mvKey_Spacebar and not ctrl:
                 if playback_controller.is_playing():
                     playback_controller.pause()
                 else:
                     playback_controller.play()
-            elif key == dpg.mvKey_Left:
+            elif key == dpg.mvKey_Left and not ctrl:
                 playback_controller.seek(max(0.0, playback_controller.current_time() - _SEEK_STEP))
-            elif key == dpg.mvKey_Right:
+            elif key == dpg.mvKey_Right and not ctrl:
                 playback_controller.seek(playback_controller.current_time() + _SEEK_STEP)
-            elif key == dpg.mvKey_Home:
+            elif key == dpg.mvKey_Home and not ctrl:
                 playback_controller.seek(0.0)
+            elif key == dpg.mvKey_Delete and not ctrl:
+                timeline_panel.delete_selected()
+            elif ctrl and key == dpg.mvKey_K:
+                timeline_panel.toggle_keyframes()
+            elif ctrl and key == dpg.mvKey_B:
+                timeline_panel.split_at_playhead()
+            elif ctrl and key == dpg.mvKey_Z:
+                timeline_panel.undo()
+            elif ctrl and key == dpg.mvKey_Y:
+                timeline_panel.redo()
+            elif ctrl and key == dpg.mvKey_D:
+                timeline_panel.duplicate_selected()
+            elif ctrl and key == dpg.mvKey_C:
+                timeline_panel.copy_selected()
+            elif ctrl and key == dpg.mvKey_X:
+                timeline_panel.cut_selected()
+            elif ctrl and key == dpg.mvKey_V:
+                timeline_panel.paste_clip()
+            elif ctrl and key in (dpg.mvKey_Subtract, dpg.mvKey_Minus):
+                timeline_panel.zoom_out()
+            elif ctrl and key == dpg.mvKey_Add:
+                timeline_panel.zoom_in()
 
         with dpg.handler_registry():
             dpg.add_key_press_handler(callback=_on_playback_key)
 
         preview.bind(editor, composition_error)
+        preview.bind_export(editor_only(export_dialog.open))
         properties.bind(editor, composition_error)
         timeline_panel.bind(editor, composition_error)
         effects_panel.bind(apply_effect)
@@ -198,6 +230,7 @@ def main() -> None:
             if not export_dialog.blocks_editor():
                 timeline_panel.tick()
                 media_panel.tick()
+                text_presets.tick()
             export_dialog.tick()
             dpg.render_dearpygui_frame()
 

@@ -6,9 +6,11 @@ import av
 import numpy as np
 
 from makitop.model.keyframes import curve, interpolate
-from makitop.model.timeline import MediaClip
+from makitop.model.timeline import MAX_CLIP_SPEED, MediaClip
 
 SAMPLE_RATE = 48000
+_FILTER_LOBES = 4
+_READ_OVERLAP = int(2 * _FILTER_LOBES * MAX_CLIP_SPEED) + 2
 
 
 class AudioDecoder:
@@ -18,6 +20,7 @@ class AudioDecoder:
         self.frames = iter(())
         self.ahead = None
         self.position = None
+        self._tail = np.empty((0, 2), dtype=np.float32)
 
     def _frames(self):
         resampler = av.AudioResampler(format="fltp", layout="stereo", rate=SAMPLE_RATE)
@@ -30,13 +33,22 @@ class AudioDecoder:
         result = np.zeros((count, 2), dtype=np.float32)
         if self.stream is None:
             return result
-        if self.position is None or start < self.position or start - self.position > SAMPLE_RATE:
+        first = start
+        end = start + count
+        if self.position is not None and self.position - len(self._tail) <= start < self.position:
+            # Les blocs rééchantillonnés partagent quelques échantillons aux frontières.
+            left = start - (self.position - len(self._tail))
+            first = min(end, self.position)
+            result[:first - start] = self._tail[left:left + first - start]
+            if first == end:
+                return result
+        if (self.position is None or first < self.position
+                or first - self.position > SAMPLE_RATE):
             # Un peu de pré-roll permet au rééchantillonneur de retrouver son état.
-            timestamp = int(max(0, start / SAMPLE_RATE - 0.1) / self.stream.time_base)
+            timestamp = int(max(0, first / SAMPLE_RATE - 0.1) / self.stream.time_base)
             self.container.seek(timestamp, stream=self.stream, backward=True)
             self.frames = self._frames()
             self.ahead = None
-        end = start + count
         while True:
             if self.ahead is None:
                 frame = next(self.frames, None)
@@ -48,13 +60,14 @@ class AudioDecoder:
             offset, samples = self.ahead
             if offset >= end:
                 break
-            left, right = max(start, offset), min(end, offset + len(samples))
+            left, right = max(first, offset), min(end, offset + len(samples))
             if right > left:
                 result[left - start:right - start] = samples[left - offset:right - offset]
             if offset + len(samples) > end:
                 break
             self.ahead = None
         self.position = end
+        self._tail = result[-_READ_OVERLAP:].copy()
         return result
 
     def close(self):
@@ -86,8 +99,8 @@ class TimelineAudioRenderer:
                 active.add(clip.id)
                 if clip.id not in self.decoders:
                     self.decoders[clip.id] = AudioDecoder(clip.media.path)
-                source = round(clip.source_start * SAMPLE_RATE) + left - clip_start
-                samples = self.decoders[clip.id].read(source, right - left)
+                samples = _read_clip_audio(self.decoders[clip.id], clip,
+                                           left - clip_start, right - left)
                 points = curve(clip.keyframes, "volume")
                 if points:
                     # Enveloppe par échantillon, indépendante des blocs de lecture/export.
@@ -108,3 +121,29 @@ class TimelineAudioRenderer:
         for decoder in self.decoders.values():
             decoder.close()
         self.decoders.clear()
+
+
+def _read_clip_audio(decoder, clip, offset, count):
+    source = round(clip.source_start * SAMPLE_RATE)
+    if clip.speed == 1:
+        return decoder.read(source + offset, count)
+    last = max(source, round(clip.source_end * SAMPLE_RATE) - 1)
+    positions = np.minimum(source + (offset + np.arange(count)) * clip.speed, last)
+    indices = positions.astype(np.int64)
+    if clip.speed < 1:
+        first, end = indices[0], min(last, indices[-1] + 1)
+        data = decoder.read(first, end - first + 1)
+        alpha = (positions - indices).astype(np.float32)[:, None]
+        following = np.minimum(indices + 1, last)
+        return data[indices - first] * (1 - alpha) + data[following - first] * alpha
+
+    # À l'accélération, filtrer avant de décimer pour éviter le repliement spectral.
+    radius = int(np.ceil(_FILTER_LOBES * clip.speed))
+    taps = indices[:, None] + np.arange(1 - radius, radius + 1)
+    distance = positions[:, None] - taps
+    weights = np.sinc(distance / clip.speed) * np.sinc(distance / radius)
+    weights /= weights.sum(axis=1, keepdims=True)
+    taps = np.clip(taps, source, last)
+    first, end = taps[0, 0], taps[-1, -1]
+    data = decoder.read(first, end - first + 1)
+    return np.einsum("ij,ijk->ik", weights.astype(np.float32), data[taps - first])

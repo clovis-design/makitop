@@ -11,7 +11,9 @@ PROPERTIES = {
     "width": ("Largeur", 0, 8),
     "height": ("Hauteur", 0, 8),
     "volume": ("Volume", 0, 2),
+    "opacity": ("Opacité", 0, 1),
 }
+GEOMETRY_PROPERTIES = ("x", "y", "zoom", "width", "height")
 INTERPOLATIONS = {"Linéaire": "linear", "Douce": "smooth", "Constante": "constant"}
 
 

@@ -9,6 +9,7 @@ import dearpygui.dearpygui as dpg
 from makitop.media import thumbnails
 from makitop.model.media import Media, MediaKind
 from makitop.ui.panels import effects as effects_panel
+from makitop.ui.panels import text_presets
 
 TAG = "media_panel"
 TITLE_TAG = "media_panel_title"
@@ -107,6 +108,7 @@ def create(
     on_selected: Callable[[Media], None] | None = None,
     on_add_media: Callable[[], None] | None = None,
     on_add_to_timeline: Callable[[Media], None] | None = None,
+    on_add_text: Callable[[str], None] | None = None,
 ) -> None:
     global _medias, _current_cols, _current_row_tag, _item_count, _on_selected, _on_add_media
     global _active_filter, _filter_active_theme, _search_query, _sort_key, _on_add_to_timeline, _on_delete_media
@@ -216,7 +218,7 @@ def create(
                 callback=lambda: _on_add_media() if _on_add_media else None,
             )
             with dpg.tooltip(_ADD_BUTTON_TAG):
-                dpg.add_text("Ajouter des médias")
+                dpg.add_text("Ajouter des médias [Ctrl+I]")
         # Le séparateur ignore l'indentation, ce qui donne un bel effet "bord à bord" moderne
         dpg.add_separator(indent=16)
         
@@ -272,6 +274,8 @@ def create(
                         dpg.add_group(tag=_GRID_TAG)
                     elif key == "effects":
                         effects_panel.build()
+                    elif key == "text":
+                        text_presets.build(on_add_text)
 
     dpg.bind_item_handler_registry(TAG, _PANEL_HANDLER)
 

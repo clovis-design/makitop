@@ -9,8 +9,11 @@ from dataclasses import dataclass, field, replace
 
 from makitop.model.composition import Transform, with_zoom
 from makitop.model.effects import Effect
-from makitop.model.keyframes import Keyframe, curve, value_at
+from makitop.model.keyframes import GEOMETRY_PROPERTIES, Keyframe, curve, value_at
 from makitop.model.media import Media
+from makitop.model.text import MAX_TEXT_LENGTH, TextStyle
+
+MIN_CLIP_SPEED, MAX_CLIP_SPEED = 0.25, 8.0
 
 
 @dataclass(kw_only=True)
@@ -57,13 +60,24 @@ class BaseClip(ABC):
     def duration(self) -> float:
         return self.timeline_end - self.timeline_start  # type: ignore[attr-defined]
 
-    def transform_at(self, local_time):
+    @property
+    @abstractmethod
+    def label(self) -> str: ...
+
+    @property
+    def keyframe_properties(self):
+        return (*GEOMETRY_PROPERTIES, "volume")
+
+    def unzoomed_transform_at(self, local_time):
         if not self.keyframes:
             return self.transform
-        transform = replace(self.transform, **{
+        return replace(self.transform, **{
             name: value_at(self.keyframes, name, local_time, getattr(self.transform, name))
             for name in ("x", "y", "width", "height")
         })
+
+    def transform_at(self, local_time):
+        transform = self.unzoomed_transform_at(local_time)
         if curve(self.keyframes, "zoom"):
             # Le zoom conserve les proportions et le centre, après les autres animations.
             transform = with_zoom(transform, value_at(
@@ -84,10 +98,29 @@ class MediaClip(BaseClip):
     source_start: float
     source_end: float
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    speed: float = field(default=1.0, kw_only=True)
+
+    def __post_init__(self):
+        if (type(self.speed) not in (int, float)
+                or not MIN_CLIP_SPEED <= self.speed <= MAX_CLIP_SPEED):
+            raise ValueError("La vitesse doit être comprise entre 0,25× et 8×.")
+        super().__post_init__()
 
     @property
     def timeline_end(self) -> float:
-        return self.timeline_start + (self.source_end - self.source_start)
+        return self.timeline_start + self.duration
+
+    @property
+    def duration(self) -> float:
+        return (self.source_end - self.source_start) / self.speed
+
+    def source_time_at(self, position: float) -> float:
+        """Instant du média correspondant à une position dans le montage."""
+        return self.source_start + max(0.0, position - self.timeline_start) * self.speed
+
+    @property
+    def label(self) -> str:
+        return self.media.name
 
 
 @dataclass
@@ -102,6 +135,49 @@ class ImageClip(BaseClip):
     @property
     def timeline_end(self) -> float:
         return self.timeline_start + self.display_duration
+
+    @property
+    def label(self) -> str:
+        return self.media.name
+
+
+@dataclass
+class TextClip(BaseClip):
+    """Zone de texte intégrée au projet, sans média associé."""
+
+    timeline_start: float
+    display_duration: float
+    content: str
+    style: TextStyle = field(default_factory=TextStyle)
+    id: str = field(default_factory=lambda: uuid.uuid4().hex)
+
+    def __post_init__(self):
+        super().__post_init__()
+        if not isinstance(self.content, str) or len(self.content) > MAX_TEXT_LENGTH:
+            raise ValueError(f"Le texte ne doit pas dépasser {MAX_TEXT_LENGTH} caractères.")
+        if not isinstance(self.style, TextStyle):
+            raise ValueError("Style de texte invalide.")
+
+    @property
+    def timeline_end(self) -> float:
+        return self.timeline_start + self.display_duration
+
+    @property
+    def label(self) -> str:
+        return next((line.strip() for line in self.content.splitlines() if line.strip()), "Texte")
+
+    @property
+    def keyframe_properties(self):
+        return (*GEOMETRY_PROPERTIES, "opacity")
+
+    def opacity_at(self, local_time):
+        return value_at(self.keyframes, "opacity", local_time, 1.0)
+
+    def font_scale_at(self, local_time, transform):
+        if not any(key.property == "zoom" for key in self.keyframes):
+            return 1.0
+        width = value_at(self.keyframes, "width", local_time, self.transform.width)
+        return transform.width / width
 
 
 @dataclass
@@ -119,7 +195,7 @@ class Timeline:
         """Calques actifs du fond vers le premier plan (piste supérieure)."""
         return sorted((c for c in self.clips
                        if c.timeline_start - 1e-9 <= position < c.timeline_end - 1e-9),
-                      key=lambda c: c.track)
+                      key=lambda clip: clip.track)
 
     @property
     def duration(self) -> float:

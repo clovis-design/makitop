@@ -22,6 +22,8 @@ QUALITY = "export_video_quality"
 SUMMARY = "export_video_summary"
 FPS_NOTE = "export_video_fps_note"
 RESOLUTIONS = {**PREVIEW_QUALITIES, "4K (2160p)": 2160}
+_SETTINGS_SIZE = (360, 290)
+_WINDOW_SIZE = (430, 135)
 QUALITIES = {
     "Haute qualité": (18, "medium"),
     "Qualité maximale (plus lent)": (16, "slow"),
@@ -156,8 +158,12 @@ class ExportDialog:
             if self._pending_frames:
                 self._pending_frames -= 1
             else:
-                dpg.show_item(self._pending_window)
-                dpg.focus_item(self._pending_window)
+                from makitop.ui.dialogs import center_window
+                tag = self._pending_window
+                size = _SETTINGS_SIZE if tag == SETTINGS else _WINDOW_SIZE
+                center_window(tag, *size)
+                dpg.show_item(tag)
+                dpg.focus_item(tag)
                 self._pending_window = None
         if self.future is None:
             return

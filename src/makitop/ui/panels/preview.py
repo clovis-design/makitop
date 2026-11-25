@@ -5,11 +5,16 @@ Le cadre de composition gère la sélection, le déplacement, la taille et le re
 à la souris.
 """
 
+import math
+from dataclasses import replace
+
 import cv2
 import dearpygui.dearpygui as dpg
 import numpy as np
 
-from makitop.model.composition import FORMATS, drag_transform, fitted_bounds
+from makitop.model.composition import FORMATS, drag_transform, fitted_bounds, rotate_point
+from makitop.model.media import MediaKind
+from makitop.model.timeline import TextClip
 from makitop.ui.assets.style import COLORS
 from makitop.ui.panels import transport_icons
 
@@ -86,12 +91,18 @@ _texture = VIDEO_TEXTURE_TAG
 _pixels = None
 _rgba8 = None
 _selection_key = None
+_on_export = None
 
 
 def bind(editor, on_error):
     global _editor, _on_error
     _editor, _on_error = editor, on_error
     refresh()
+
+
+def bind_export(fn) -> None:
+    global _on_export
+    _on_export = fn
 
 
 def _call(action):
@@ -293,6 +304,10 @@ def _header():
             dpg.add_combo(FPS_CHOICES, default_value="60", width=FPS_W,
                           tag="composition_fps", callback=_fps_changed)
             dpg.add_text("ips", color=COLORS["label_muted"])
+            dpg.add_button(label="Exporter", tag="preview_export_btn",
+                           callback=lambda: _on_export() if _on_export else None)
+            with dpg.tooltip("preview_export_btn"):
+                dpg.add_text("Exporter la vidéo")
     dpg.bind_item_theme(HEADER, BAR_THEME)
 
 
@@ -422,7 +437,7 @@ def resize(width, height):
     dpg.configure_item(CANVAS, width=_size[0], height=_size[1])
     dpg.configure_item(VIDEO_IMAGE_TAG, pmax=_size)
     # En-tête : qualité + fps alignés à droite.
-    right_w = QUALITY_W + FPS_W + 2 * ITEM_SPACING + _text_width("ips")
+    right_w = QUALITY_W + FPS_W + 3 * ITEM_SPACING + _text_width("ips") + _text_width("Exporter") + 16
     dpg.configure_item(HEADER_RIGHT, pos=(max(0, int(width - BAR_PAD[0] - right_w)),
                                           BAR_PAD[1]))
     # Barre de progression sur toute la largeur.
@@ -480,18 +495,68 @@ def _scrub_click():
 # --- Cadre de composition -------------------------------------------------------
 
 def _bounds(clip):
-    return fitted_bounds(clip.transform_at(_time - clip.timeline_start),
-                         clip.media.width, clip.media.height,
+    transform = clip.transform_at(_time - clip.timeline_start)
+    if isinstance(clip, TextClip):
+        return transform.x, transform.y, transform.width, transform.height
+    return fitted_bounds(transform, clip.media.width, clip.media.height,
                          _editor.project.canvas_ratio)
 
 
-def _handles(bounds):
+def _crop_enabled(clip):
+    return not isinstance(clip, TextClip) and dpg.get_value("composition_crop")
+
+
+def _bounds_center(bounds):
     x, y, w, h = bounds
-    if dpg.get_value("composition_crop"):
-        return {"left": (x, y + h / 2), "right": (x + w, y + h / 2),
-                "top": (x + w / 2, y), "bottom": (x + w / 2, y + h)}
-    return {"top_left": (x, y), "top_right": (x + w, y),
-            "bottom_left": (x, y + h), "bottom_right": (x + w, y + h)}
+    return x + w / 2, y + h / 2
+
+
+def _rotation(clip):
+    return clip.transform.rotation if clip is not None and not isinstance(clip, TextClip) else 0.0
+
+
+def _can_rotate(clip):
+    return not isinstance(clip, TextClip) and clip.media.kind != MediaKind.AUDIO
+
+
+def _rotate_point(point, center, angle):
+    return rotate_point(point, center, angle, _size[0] / _size[1])
+
+
+def _handles(bounds, crop, rotation=0):
+    x, y, w, h = bounds
+    if crop:
+        points = {"left": (x, y + h / 2), "right": (x + w, y + h / 2),
+                  "top": (x + w / 2, y), "bottom": (x + w / 2, y + h)}
+    else:
+        points = {"top_left": (x, y), "top_right": (x + w, y),
+                  "bottom_right": (x + w, y + h), "bottom_left": (x, y + h)}
+    center = _bounds_center(bounds)
+    return {name: _rotate_point(point, center, rotation) for name, point in points.items()}
+
+
+def _rotation_handle(bounds, rotation):
+    """Positionne la poignée à l'extérieur si possible, sinon à l'intérieur du cadre."""
+    x, y, w, h = bounds
+    sw, sh = _size
+    center = _bounds_center(bounds)
+    edges = ((x + w / 2, y, 0, -1), (x + w / 2, y + h, 0, 1),
+             (x + w, y + h / 2, 1, 0), (x, y + h / 2, -1, 0))
+    for distance in (22, -22):
+        for ax, ay, dx, dy in edges:
+            head = _rotate_point((ax + dx * distance / sw, ay + dy * distance / sh),
+                                 center, rotation)
+            radius = math.hypot((head[0] - center[0]) * sw, (head[1] - center[1]) * sh)
+            if 10 <= head[0] * sw <= sw - 10 and 10 <= head[1] * sh <= sh - 10 and radius >= 12:
+                return _rotate_point((ax, ay), center, rotation), head
+    return None
+
+
+def _is_empty():
+    """Montage sans aucun clip : on invite à glisser un média dans le cadre."""
+    if _editor is None:
+        return True
+    return not _editor.source_mode and not _editor.project.timeline.clips
 
 
 def _is_empty():
@@ -508,7 +573,10 @@ def _draw_selection():
         clip = None
     bounds = _bounds(clip) if clip is not None else None
     empty = _is_empty()
-    key = (_size, bounds, dpg.get_value("composition_crop"), empty, _fullscreen)
+    crop = _crop_enabled(clip)
+    rotation = _rotation(clip)
+    can_rotate = clip is not None and _can_rotate(clip) and not crop
+    key = (_size, bounds, crop, rotation, can_rotate, empty, _fullscreen)
     if key == _selection_key:
         return
     _selection_key = key
@@ -525,14 +593,20 @@ def _draw_selection():
         return
     if clip is None:
         return
-    x, y, w, h = bounds
     sw, sh = _size
-    color = (245, 180, 60, 255) if dpg.get_value("composition_crop") else (80, 180, 255, 255)
-    dpg.draw_rectangle((x * sw, y * sh), ((x + w) * sw, (y + h) * sh),
-                       color=color, thickness=2, parent=OVERLAY)
-    for hx, hy in _handles(bounds).values():
+    color = (245, 180, 60, 255) if crop else (80, 180, 255, 255)
+    corners = _handles(bounds, False, rotation).values()
+    dpg.draw_polygon([(px * sw, py * sh) for px, py in corners],
+                     color=color, thickness=2, parent=OVERLAY)
+    for hx, hy in _handles(bounds, crop, rotation).values():
         dpg.draw_rectangle((hx * sw - 5, hy * sh - 5), (hx * sw + 5, hy * sh + 5),
                            fill=color, color=(255, 255, 255, 255), parent=OVERLAY)
+    handle = _rotation_handle(bounds, rotation) if can_rotate else None
+    if handle is not None:
+        (ax, ay), (hx, hy) = handle
+        dpg.draw_line((ax * sw, ay * sh), (hx * sw, hy * sh), color=color, parent=OVERLAY)
+        dpg.draw_circle((hx * sw, hy * sh), 6, fill=color, color=(255, 255, 255, 255),
+                        parent=OVERLAY, tag="preview_rotation_handle")
 
 
 def _mouse():
@@ -549,23 +623,35 @@ def _click():
     selected = _editor.selected
     handle = "move"
     if selected is not None and selected in _editor.project.timeline.clips_at(_time):
-        for name, (x, y) in _handles(_bounds(selected)).items():
-            if abs(point[0] - x) * _size[0] <= 8 and abs(point[1] - y) * _size[1] <= 8:
+        bounds = _bounds(selected)
+        crop = _crop_enabled(selected)
+        rotation = _rotation(selected)
+        handles = _handles(bounds, crop, rotation)
+        rotation_handle = (
+            _rotation_handle(bounds, rotation) if _can_rotate(selected) and not crop else None
+        )
+        if rotation_handle is not None:
+            handles = {"rotate": rotation_handle[1], **handles}
+        for name, (x, y) in handles.items():
+            if math.hypot((point[0] - x) * _size[0], (point[1] - y) * _size[1]) <= 9:
                 handle = name
                 break
     if handle == "move":
         selected = None
         for clip in reversed(_editor.project.timeline.clips_at(_time)):
-            x, y, w, h = _bounds(clip)
-            if x <= point[0] <= x + w and y <= point[1] <= y + h:
+            bounds = _bounds(clip)
+            x, y, w, h = bounds
+            px, py = _rotate_point(point, _bounds_center(bounds), -_rotation(clip))
+            if x <= px <= x + w and y <= py <= y + h:
                 selected = clip
                 break
     _editor.select(selected.id if selected else None)
     if selected:
         _editor.playback.pause()
-        _gesture = (selected.id, selected.transform_at(_time - selected.timeline_start),
-                    _bounds(selected), point,
-                    "crop" if dpg.get_value("composition_crop") else "resize", handle)
+        time = _time - selected.timeline_start
+        text_box = selected.unzoomed_transform_at(time) if isinstance(selected, TextClip) else None
+        _gesture = (selected.id, selected.transform_at(time), _bounds(selected), point,
+                    "crop" if _crop_enabled(selected) else "resize", handle, text_box)
 
 
 def _drag():
@@ -574,17 +660,62 @@ def _drag():
         return
     if _gesture is None or _editor is None:
         return
-    clip_id, original, bounds, origin, mode, handle = _gesture
+    clip_id, original, bounds, origin, mode, handle, text_box = _gesture
     point = _mouse()
+
     def apply():
-        transform = drag_transform(original, bounds, mode, handle,
-                                   point[0] - origin[0], point[1] - origin[1],
+        clip = _editor.selected
+        if clip is None or clip.id != clip_id:
+            return
+        time = _time - clip.timeline_start
+        if handle == "rotate":
+            cx, cy = _bounds_center(bounds)
+            sw, sh = _size
+            dx, dy = (point[0] - cx) * sw, (point[1] - cy) * sh
+            if math.hypot(dx, dy) > 5:
+                initial = math.atan2((origin[1] - cy) * sh, (origin[0] - cx) * sw)
+                angle = original.rotation + math.degrees(math.atan2(dy, dx) - initial)
+                _editor.set_clip_orientation(rotation=round(angle, 1))
+            return
+        delta = point[0] - origin[0], point[1] - origin[1]
+        rotated_resize = bool(original.rotation and handle != "move")
+        if rotated_resize:
+            delta = _rotate_point(delta, (0, 0), -original.rotation)
+        mirrored_crop = mode == "crop" and (original.flip_horizontal or original.flip_vertical)
+        base = _swap_mirrored_crop(original) if mirrored_crop else original
+        transform = drag_transform(base, bounds, mode, handle, *delta,
                                    _editor.project.canvas_ratio)
-        if _editor.selected is not None and transform != _editor.selected.transform_at(
-            _time - _editor.selected.timeline_start,
-        ):
+        if mirrored_crop:
+            transform = _swap_mirrored_crop(transform)
+        if rotated_resize:
+            # Ancrer le coin opposé dans le repère tourné, comme dans le cadre droit.
+            center = _bounds_center((transform.x, transform.y, transform.width, transform.height))
+            cx, cy = _rotate_point(center, _bounds_center(bounds), original.rotation)
+            transform = replace(transform, x=transform.x + cx - center[0],
+                                y=transform.y + cy - center[1])
+        if text_box is not None and handle == "move":
+            transform = replace(text_box,
+                                x=max(-8, min(8, text_box.x + transform.x - original.x)),
+                                y=max(-8, min(8, text_box.y + transform.y - original.y)))
+        elif text_box is not None and any(key.property == "zoom" for key in clip.keyframes):
+            if abs(transform.width - clip.transform_at(time).width) > 1e-9:
+                _editor.set_animated_value("zoom", transform.width)
+            return
+        current = (clip.unzoomed_transform_at(time) if text_box is not None
+                   else clip.transform_at(time))
+        if transform != current:
             _editor.update_clip(clip_id, transform=transform)
     _call(apply)
+
+
+def _swap_mirrored_crop(transform):
+    if transform.flip_horizontal:
+        transform = replace(transform, crop_left=transform.crop_right,
+                            crop_right=transform.crop_left)
+    if transform.flip_vertical:
+        transform = replace(transform, crop_top=transform.crop_bottom,
+                            crop_bottom=transform.crop_top)
+    return transform
 
 
 def _release():

@@ -118,3 +118,30 @@ def test_mix_is_limited_to_output_range(signal_file):
         assert not samples[:, 1].any()
     finally:
         renderer.close()
+
+
+@pytest.mark.parametrize("speed", [0.6, 1.75, 2.0, 8.0])
+def test_retimed_audio_respects_clip_bounds_and_is_continuous_across_blocks(signal_file, speed):
+    media = probe(signal_file)
+    clip = MediaClip(0.05, media, 0.2, 0.8, speed=speed)
+    project = Project(timeline=Timeline(clips=[clip]))
+    renderer = TimelineAudioRenderer()
+    blocked = TimelineAudioRenderer()
+    count = round(clip.timeline_end * SAMPLE_RATE) + 500
+    try:
+        whole = renderer.render(project, 0, count)
+        chunks = np.concatenate([
+            blocked.render(project, offset, min(777, count - offset))
+            for offset in range(0, count, 777)
+        ])
+        start = round(clip.timeline_start * SAMPLE_RATE)
+        middle = start + round(0.3 / speed * SAMPLE_RATE)
+        end = round(clip.timeline_end * SAMPLE_RATE)
+        assert not whole[:start].any()
+        assert not whole[end:].any()
+        assert whole[start + 100, 0] == pytest.approx(0.25, abs=1e-4)
+        assert whole[middle + 100, 1] == pytest.approx(-0.5, abs=1e-4)
+        np.testing.assert_allclose(chunks, whole, atol=1e-5)
+    finally:
+        renderer.close()
+        blocked.close()
