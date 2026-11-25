@@ -397,17 +397,11 @@ class CompositionEditor:
             self.playback.seek(position)
 
     def sync_playhead(self):
-        """Reporte la position de lecture dans le projet (appelé à chaque image).
-
-        Elle est enregistrée avec le projet ; la déplacer (clic, lecture, Stop) le
-        marque comme modifié. L'aperçu d'un média seul ne touche pas au montage.
-        """
+        """Reporte la position de lecture dans le projet (appelé à chaque image)."""
         if self.source_mode:
             return
         position = round(self.playback.current_time(), 3)
-        if position != self.project.view.playhead:
-            self.project.view.playhead = position
-            self.session.mark_dirty()
+        self.project.view.playhead = position
 
     def rows(self):
         """Clips dans l'ordre des lignes de la timeline : de la piste du fond (0) vers

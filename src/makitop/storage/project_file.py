@@ -225,7 +225,7 @@ def _clip_from_dict(data: dict, media_index: dict[str, Media]) -> BaseClip:
 def _view_from_dict(data: dict) -> ViewState:
     # Absent des projets enregistrés avant l'ajout de l'état d'affichage : valeurs par défaut.
     return ViewState(
-        playhead=float(data.get("playhead", 0.0)),
+        playhead=0.0,
         timeline_zoom=int(data.get("timeline_zoom", DEFAULT_TIMELINE_ZOOM)),
     )
 
