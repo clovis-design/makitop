@@ -73,6 +73,7 @@ _dragging: bool = False
 _drag_clip: BaseClip | None = None
 _drag_offset_px: float = 0.0
 _drag_source_row: int | None = None
+_incompatible_drop_target: int | None = None
 _selected_clip: BaseClip | None = None
 _pending_fit_zoom: bool = False
 _show_keyframes = False
@@ -460,7 +461,7 @@ def set_playhead(seconds: float) -> None:
 
 def tick() -> None:
     global _dragging, _drag_clip, _drag_offset_px, _drag_source_row, _selected_clip
-    global _drag_keyframe
+    global _drag_keyframe, _incompatible_drop_target
     if _pending_fit_zoom:
         _apply_fit_zoom()
     if dpg.does_item_exist(_GHOST_LAYER):
@@ -495,6 +496,18 @@ def tick() -> None:
                 _on_key_move(property, old_time, new_time)
             _redraw_static_only()
         if _drag_clip is not None:
+            if _incompatible_drop_target is not None:
+                current_row = next((i for i, row in enumerate(_tracks) if _drag_clip in row), None)
+                if current_row is not None:
+                    _tracks[current_row].remove(_drag_clip)
+                    insert_at = _incompatible_drop_target
+                    if not _tracks[current_row]:
+                        _tracks.pop(current_row)
+                        if insert_at > current_row:
+                            insert_at -= 1
+                    insert_at = max(0, min(len(_tracks), insert_at))
+                    _tracks.insert(insert_at, [_drag_clip])
+                _incompatible_drop_target = None
             dest_row_idx = next((i for i, row in enumerate(_tracks) if _drag_clip in row), None)
             reorder_needed = dest_row_idx != _drag_source_row
             # Si la row de destination a plusieurs clips, un merge a eu lieu (les indices
@@ -575,7 +588,14 @@ def tick() -> None:
             # Déplacement vertical entre pistes
             target_row = min(_row_at(local_y), len(_tracks) - 1)
             current_row = next((i for i, row in enumerate(_tracks) if _drag_clip in row), None)
-            if current_row is not None and target_row != current_row:
+            drag_is_text = isinstance(_drag_clip, TextClip)
+            target_compatible = (
+                target_row >= len(_tracks)
+                or not _tracks[target_row]
+                or all(isinstance(c, TextClip) for c in _tracks[target_row]) == drag_is_text
+            )
+            if current_row is not None and target_row != current_row and target_compatible:
+                _incompatible_drop_target = None
                 _tracks[current_row].remove(_drag_clip)
                 if not _tracks[current_row]:
                     _tracks.pop(current_row)
@@ -586,12 +606,18 @@ def tick() -> None:
                 _tracks[target_row].append(_drag_clip)
                 _tracks[target_row].sort(key=lambda c: c.timeline_start)
                 _redraw()
+            elif current_row is not None and not target_compatible:
+                _incompatible_drop_target = target_row
+                _drag_clip.timeline_start = new_start
+                _redraw_static_only()
             else:
+                _incompatible_drop_target = None
                 _drag_clip.timeline_start = new_start
                 _redraw_static_only()
 
-            # Ghost : surbrillance de la piste cible + indicateur si overlap
-            _draw_drag_ghost(target_row, new_start)
+            # Ghost : surbrillance de la piste cible + indicateur si overlap ou incompatibilité
+            ghost_row = _incompatible_drop_target if _incompatible_drop_target is not None else target_row
+            _draw_drag_ghost(ghost_row, new_start, incompatible=_incompatible_drop_target is not None)
 
         # Seek drag
         elif _dragging and btn_down and _on_seek is not None and not _external_drag:
@@ -929,7 +955,7 @@ def _do_delete_track(track_idx: int, dialog_tag: str) -> None:
     _redraw()
 
 
-def _draw_drag_ghost(target_row: int, new_start: float) -> None:
+def _draw_drag_ghost(target_row: int, new_start: float, incompatible: bool = False) -> None:
     if not dpg.does_item_exist(_GHOST_LAYER) or _drag_clip is None:
         return
     total_w = _content_width()
@@ -944,9 +970,24 @@ def _draw_drag_ghost(target_row: int, new_start: float) -> None:
         parent=_GHOST_LAYER,
     )
 
-    # Si la position actuelle provoquerait un overlap → ligne jaune = future nouvelle piste
     dest_row_clips = _tracks[target_row] if 0 <= target_row < len(_tracks) else []
-    if _has_overlap(_drag_clip, dest_row_clips):
+    if incompatible:
+        # Type incompatible → ligne orange = nouvelle piste sera créée ici
+        dpg.draw_line(
+            (0, row_y), (total_w, row_y),
+            color=(255, 150, 50, 220),
+            thickness=2,
+            parent=_GHOST_LAYER,
+        )
+        dpg.draw_text(
+            (4, row_y + 2),
+            "Nouvelle piste",
+            color=(255, 150, 50, 200),
+            size=11,
+            parent=_GHOST_LAYER,
+        )
+    elif _has_overlap(_drag_clip, dest_row_clips):
+        # Overlap → ligne jaune = future nouvelle piste
         dpg.draw_line(
             (0, row_y), (total_w, row_y),
             color=(255, 210, 50, 220),
