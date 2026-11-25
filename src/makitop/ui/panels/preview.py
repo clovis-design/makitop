@@ -523,14 +523,18 @@ def _rotate_point(point, center, angle):
     return rotate_point(point, center, angle, _size[0] / _size[1])
 
 
-def _handles(bounds, crop, rotation=0):
+_SIDE_HANDLES = {"left", "right", "top", "bottom"}
+
+
+def _handles(bounds, crop, rotation=0, *, corners_only=False):
     x, y, w, h = bounds
-    if crop:
-        points = {"left": (x, y + h / 2), "right": (x + w, y + h / 2),
-                  "top": (x + w / 2, y), "bottom": (x + w / 2, y + h)}
-    else:
-        points = {"top_left": (x, y), "top_right": (x + w, y),
-                  "bottom_right": (x + w, y + h), "bottom_left": (x, y + h)}
+    points = {}
+    if not crop or corners_only:
+        points.update(top_left=(x, y), top_right=(x + w, y),
+                      bottom_right=(x + w, y + h), bottom_left=(x, y + h))
+    if not corners_only:
+        points.update(left=(x, y + h / 2), right=(x + w, y + h / 2),
+                      top=(x + w / 2, y), bottom=(x + w / 2, y + h))
     center = _bounds_center(bounds)
     return {name: _rotate_point(point, center, rotation) for name, point in points.items()}
 
@@ -588,12 +592,16 @@ def _draw_selection():
         return
     sw, sh = _size
     color = (245, 180, 60, 255) if crop else (80, 180, 255, 255)
-    corners = _handles(bounds, False, rotation).values()
+    corners = _handles(bounds, False, rotation, corners_only=True).values()
     dpg.draw_polygon([(px * sw, py * sh) for px, py in corners],
                      color=color, thickness=2, parent=OVERLAY)
-    for hx, hy in _handles(bounds, crop, rotation).values():
-        dpg.draw_rectangle((hx * sw - 5, hy * sh - 5), (hx * sw + 5, hy * sh + 5),
-                           fill=color, color=(255, 255, 255, 255), parent=OVERLAY)
+    for name, (hx, hy) in _handles(bounds, crop, rotation).items():
+        edge_resize = not crop and name in _SIDE_HANDLES
+        size = 4 if edge_resize else 5
+        fill = (140, 225, 250, 255) if edge_resize else color
+        dpg.draw_rectangle((hx * sw - size, hy * sh - size), (hx * sw + size, hy * sh + size),
+                           fill=fill, color=(255, 255, 255, 255), parent=OVERLAY,
+                           tag=f"preview_handle_{name}")
     handle = _rotation_handle(bounds, rotation) if can_rotate else None
     if handle is not None:
         (ax, ay), (hx, hy) = handle
@@ -625,10 +633,12 @@ def _click():
         )
         if rotation_handle is not None:
             handles = {"rotate": rotation_handle[1], **handles}
-        for name, (x, y) in handles.items():
-            if math.hypot((point[0] - x) * _size[0], (point[1] - y) * _size[1]) <= 9:
-                handle = name
-                break
+        distance, nearest = min(
+            (math.hypot((point[0] - x) * _size[0], (point[1] - y) * _size[1]), name)
+            for name, (x, y) in handles.items()
+        )
+        if distance <= 9:
+            handle = nearest
     if handle == "move":
         selected = None
         for clip in reversed(_editor.project.timeline.clips_at(_time)):
@@ -642,9 +652,9 @@ def _click():
     if selected:
         _editor.playback.pause()
         time = _time - selected.timeline_start
-        text_box = selected.unzoomed_transform_at(time) if isinstance(selected, TextClip) else None
+        raw_box = selected.unzoomed_transform_at(time)
         _gesture = (selected.id, selected.transform_at(time), _bounds(selected), point,
-                    "crop" if _crop_enabled(selected) else "resize", handle, text_box)
+                    "crop" if _crop_enabled(selected) else "resize", handle, raw_box)
 
 
 def _drag():
@@ -653,7 +663,7 @@ def _drag():
         return
     if _gesture is None or _editor is None:
         return
-    clip_id, original, bounds, origin, mode, handle, text_box = _gesture
+    clip_id, original, bounds, origin, mode, handle, raw_box = _gesture
     point = _mouse()
 
     def apply():
@@ -680,12 +690,20 @@ def _drag():
                                    _editor.project.canvas_ratio)
         if mirrored_crop:
             transform = _swap_mirrored_crop(transform)
-        if rotated_resize:
+        if rotated_resize and transform is not base:
             # Ancrer le coin opposé dans le repère tourné, comme dans le cadre droit.
             center = _bounds_center((transform.x, transform.y, transform.width, transform.height))
             cx, cy = _rotate_point(center, _bounds_center(bounds), original.rotation)
             transform = replace(transform, x=transform.x + cx - center[0],
                                 y=transform.y + cy - center[1])
+        text_box = raw_box if isinstance(clip, TextClip) else None
+        if mode == "resize" and handle in _SIDE_HANDLES:
+            if text_box is not None:
+                transform = replace(transform, stretch=text_box.stretch)
+            if any(key.property == "zoom" for key in clip.keyframes):
+                if transform != clip.transform_at(time):
+                    _editor.resize_animated_box(transform, original.width / raw_box.width)
+                return
         if text_box is not None and handle == "move":
             transform = replace(text_box,
                                 x=max(-8, min(8, text_box.x + transform.x - original.x)),

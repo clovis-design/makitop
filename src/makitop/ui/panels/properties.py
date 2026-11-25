@@ -19,6 +19,8 @@ from makitop.model.keyframes import GEOMETRY_PROPERTIES, INTERPOLATIONS, PROPERT
 from makitop.model.media import MediaKind
 from makitop.model.text import ALIGNMENTS, FONTS, MAX_TEXT_LENGTH
 from makitop.model.timeline import MAX_CLIP_SPEED, MIN_CLIP_SPEED, ImageClip, TextClip
+from makitop.model.transitions import CATALOG as TRANSITIONS
+from makitop.model.transitions import MAX_DURATION, MIN_DURATION
 from makitop.ui.assets.style import COLORS
 from makitop.ui.panels import inspector_icons
 
@@ -27,6 +29,7 @@ TABS = "clip_tabs"
 TAB_VIDEO = "clip_tab_video"
 TAB_AUDIO = "clip_tab_audio"
 TAB_EFFECTS = "clip_tab_effects"
+TAB_TRANSITION = "clip_tab_transition"
 TAB_KEYFRAMES = "clip_tab_keyframes"
 TAB_TEXT = "clip_tab_text"
 TEXT_CONTENT = "clip_text_content"
@@ -105,6 +108,8 @@ def create() -> None:
                     _audio_tab()
                 with dpg.tab(label="Effets", tag=TAB_EFFECTS):
                     _effects_tab()
+                with dpg.tab(label="Transition", tag=TAB_TRANSITION, show=False):
+                    _transition_tab()
                 with dpg.tab(label="Texte", tag=TAB_TEXT, show=False):
                     _text_tab()
                 with dpg.tab(label="Images clés", tag=TAB_KEYFRAMES):
@@ -211,6 +216,23 @@ def _effects_tab() -> None:
     with dpg.group(tag="clip_effects"):
         dpg.add_text(_NO_EFFECT, tag="clip_effects_empty", wrap=0, color=COLORS["label_muted"])
         dpg.add_group(tag="clip_effects_list")
+
+
+def _transition_tab() -> None:
+    dpg.add_text("", tag="clip_transition_name", wrap=0)
+    dpg.add_text("", tag="clip_transition_info", wrap=0, color=COLORS["label_muted"])
+    with _rows(), _row("Durée (s)"):
+        dpg.add_input_float(tag="clip_transition_duration", width=-1, step=0, on_enter=True,
+                            format="%.2f", min_value=MIN_DURATION, max_value=MAX_DURATION,
+                            callback=lambda s, v: _action("set_transition_duration", v))
+    dpg.add_button(label="Retirer la transition", width=-1, tag="clip_transition_remove",
+                   callback=lambda: _action("remove_transition"))
+
+
+def apply_transition(kind):
+    _action("apply_transition", kind)
+    if _editor is not None and _editor.selected_transition is not None:
+        dpg.set_value(TABS, TAB_TRANSITION)
 
 
 def _text_tab() -> None:
@@ -433,6 +455,7 @@ def refresh():
     dpg.set_value("clip_name", clip.label if clip else _EMPTY)
     if clip is None:
         return
+    _refresh_transition()
     _refresh_animation_locks(clip)
     is_text = isinstance(clip, TextClip)
     for tab in (TAB_VIDEO, TAB_EFFECTS):
@@ -525,6 +548,24 @@ def _refresh_keyframes(clip):
             if dpg.does_alias_exist("keyframe_interpolation"):
                 label = next(k for k, v in INTERPOLATIONS.items() if v == selected.interpolation)
                 dpg.set_value("keyframe_interpolation", label)
+
+def _refresh_transition():
+    transition = _editor.selected_transition
+    dpg.configure_item(TAB_TRANSITION, show=transition is not None)
+    if transition is None:
+        if dpg.get_value(TABS) in (TAB_TRANSITION, dpg.get_alias_id(TAB_TRANSITION)):
+            dpg.set_value(TABS, TAB_VIDEO)
+        return
+    dpg.set_value("clip_transition_name", TRANSITIONS[transition.kind])
+    dpg.set_value("clip_transition_duration", transition.duration)
+    spans = _editor.project.timeline.transition_spans()
+    span = next((item for item in spans if item.transition == transition), None)
+    if span is None:
+        info = "Inactive : vérifiez la jonction des clips et les transitions voisines."
+    else:
+        info = f"Durée utilisée : {span.end - span.start:.2f} s · Depuis {span.outgoing.media.name}"
+    dpg.set_value("clip_transition_info", info)
+
 
 
 def _refresh_animation_locks(clip):

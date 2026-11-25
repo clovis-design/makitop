@@ -19,6 +19,7 @@ class Transform:
     rotation: float = 0.0  # degrés, sens horaire
     flip_horizontal: bool = False
     flip_vertical: bool = False
+    stretch: bool = False  # La boîte est alors utilisée sans préserver le ratio source.
 
     def __post_init__(self):
         values = vars(self).values()
@@ -27,6 +28,8 @@ class Transform:
         if (not -180 <= self.rotation <= 180
                 or type(self.flip_horizontal) is not bool or type(self.flip_vertical) is not bool):
             raise ValueError("Orientation de calque invalide.")
+        if type(self.stretch) is not bool:
+            raise ValueError("Le mode de redimensionnement est invalide.")
         if not (0 < self.width <= 8 and 0 < self.height <= 8):
             raise ValueError("Taille de calque invalide.")
         if abs(self.x) > 8 or abs(self.y) > 8:
@@ -56,8 +59,10 @@ def rotate_point(point, center, degrees, ratio=1.0):
 
 
 def fitted_bounds(transform, media_width, media_height, canvas_ratio):
-    """Rectangle visible (x, y, largeur, hauteur), sans déformation de la source."""
+    """Rectangle visible (x, y, largeur, hauteur), avec ajustement par défaut."""
     t = transform
+    if t.stretch:
+        return t.x, t.y, t.width, t.height
     ratio = ((media_width or 1) * (1 - t.crop_left - t.crop_right)
              / ((media_height or 1) * (1 - t.crop_top - t.crop_bottom)))
     width = min(t.width, t.height * ratio / canvas_ratio)
@@ -66,7 +71,7 @@ def fitted_bounds(transform, media_width, media_height, canvas_ratio):
 
 
 def drag_transform(original, bounds, mode, handle, dx, dy, canvas_ratio):
-    """Un geste souris total depuis son origine ; les coins conservent les proportions."""
+    """Les côtés règlent un seul axe ; les coins gardent les proportions courantes."""
     x, y, width, height = bounds
     t = replace(original, x=x, y=y, width=width, height=height)
     if handle == "move":
@@ -91,6 +96,18 @@ def drag_transform(original, bounds, mode, handle, dx, dy, canvas_ratio):
         return replace(t, **{field: getattr(t, field) + change},
                        y=y + (change * full_h if handle == "top" else 0),
                        height=height - change * full_h)
+    if handle in ("left", "right"):
+        new_w = min(8, max(min(0.02, width), width + (-dx if handle == "left" else dx)))
+        if new_w == width:
+            return original
+        return replace(t, x=x + (width - new_w if handle == "left" else 0),
+                       width=new_w, stretch=True)
+    if handle in ("top", "bottom"):
+        new_h = min(8, max(min(0.02, height), height + (-dy if handle == "top" else dy)))
+        if new_h == height:
+            return original
+        return replace(t, y=y + (height - new_h if handle == "top" else 0),
+                       height=new_h, stretch=True)
     sx = -1 if "left" in handle else 1
     sy = -1 if "top" in handle else 1
     scale = 1 + (sx * dx * width * canvas_ratio**2 + sy * dy * height) / (

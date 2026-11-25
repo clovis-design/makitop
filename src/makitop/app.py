@@ -21,6 +21,7 @@ from makitop.ui.panels import effects as effects_panel
 from makitop.ui.panels import media as media_panel
 from makitop.ui.panels import preview, properties, text_presets
 from makitop.ui.panels import timeline as timeline_panel
+from makitop.ui.panels import transitions as transitions_panel
 
 TITLE = f"Makitop {__version__}"
 DEFAULT_WIDTH = 1660
@@ -165,6 +166,7 @@ def main() -> None:
         properties.bind(editor, composition_error)
         timeline_panel.bind(editor, composition_error)
         effects_panel.bind(apply_effect)
+        transitions_panel.bind(properties.apply_transition)
         editor.on_refresh = refresh_editor
         editor.show_montage(0)
         project_file.create(session)

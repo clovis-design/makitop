@@ -12,6 +12,7 @@ from makitop.model.media import MediaKind
 from makitop.model.project import Project
 from makitop.model.text import PRESETS
 from makitop.model.timeline import ImageClip, MediaClip, TextClip, Timeline
+from makitop.model.transitions import Transition, span_for
 
 
 class CompositionEditor:
@@ -133,6 +134,37 @@ class CompositionEditor:
             self.selected_keyframe = (name, time * factor)
         self.update_clip(clip.id, speed=updated.speed, keyframes=keys, position=current)
 
+    def resize_animated_box(self, displayed, zoom_scale):
+        """Applique la boîte visible en tenant compte d'une courbe de zoom existante."""
+        clip = self.selected
+        if clip is None:
+            return
+        time = self.keyframe_time(clip)
+        before = clip.unzoomed_transform_at(time)
+        scale = max(zoom_scale, displayed.width / 8, displayed.height / 8)
+        width, height = displayed.width / scale, displayed.height / scale
+        box = replace(
+            displayed, width=width, height=height,
+            x=displayed.x + (displayed.width - width) / 2,
+            y=displayed.y + (displayed.height - height) / 2,
+        )
+        keys = clip.keyframes
+        base = {}
+        selected = self.selected_keyframe
+        for name in ("x", "y", "width", "height"):
+            if curve(keys, name):
+                value = getattr(box, name)
+                if abs(value - getattr(before, name)) > 1e-9:
+                    keys = self._value_key(keys, name, time, value)
+                    selected = (name, time)
+                base[name] = getattr(clip.transform, name)
+        if abs(displayed.width - clip.transform_at(time).width) > 1e-9:
+            keys = self._value_key(keys, "zoom", time, displayed.width)
+            selected = ("zoom", time)
+        transform = replace(box, **base)
+        self.selected_keyframe = selected
+        self.update_clip(clip.id, transform=transform, keyframes=keys, animate_transform=False)
+
     def select(self, clip_id):
         if clip_id != self.selected_id:
             self.selected_keyframe = None
@@ -144,6 +176,74 @@ class CompositionEditor:
             self.show_montage(clip.timeline_start)
         else:
             self.on_refresh()
+
+    @property
+    def selected_transition(self):
+        return next((t for t in self.project.timeline.transitions
+                     if t.incoming_id == self.selected_id), None)
+
+    def apply_transition(self, kind):
+        incoming = self.selected
+        if (not isinstance(incoming, (ImageClip, MediaClip))
+                or incoming.media.kind == MediaKind.AUDIO):
+            raise ValueError("Sélectionnez le clip d’arrivée dans la timeline.")
+        timeline = self.project.timeline
+        previous = self.selected_transition
+        cut = incoming.timeline_start
+        candidates = [
+            clip for clip in timeline.clips if isinstance(clip, (ImageClip, MediaClip))
+            and clip.media.kind != MediaKind.AUDIO
+            and clip.timeline_start < cut - 1e-8
+            and clip.timeline_end >= cut - 1 / timeline.fps - 1e-8
+        ]
+        if not candidates:
+            raise ValueError("Le clip d’arrivée doit toucher ou chevaucher un clip précédent.")
+        outgoing = max(candidates, key=lambda clip: (
+            previous is not None and clip.id == previous.outgoing_id,
+            clip.track == incoming.track, clip.timeline_start, clip.track,
+        ))
+        if any(t.outgoing_id == outgoing.id and t.incoming_id != incoming.id
+               for t in timeline.transitions):
+            raise ValueError("Le clip précédent est déjà relié à une autre transition.")
+        transition = Transition(
+            outgoing.id, incoming.id, kind, previous.duration if previous else 0.8,
+        )
+        span = span_for(transition, outgoing, incoming, 1 / timeline.fps)
+        if span is None:
+            raise ValueError("Impossible de placer une transition à cette jonction.")
+        if transition == previous:
+            self._preview_transition(transition)
+            return
+        self.push_undo()
+        timeline.transitions = (*(
+            t for t in timeline.transitions if t.incoming_id != incoming.id
+        ), transition)
+        self._preview_transition(transition)
+
+    def set_transition_duration(self, seconds):
+        current = self.selected_transition
+        if current is None:
+            return
+        updated = replace(current, duration=round(seconds, 3))
+        if updated == current:
+            return
+        self.push_undo()
+        timeline = self.project.timeline
+        timeline.transitions = tuple(updated if t is current else t for t in timeline.transitions)
+        self._preview_transition(updated)
+
+    def _preview_transition(self, transition):
+        spans = self.project.timeline.transition_spans()
+        span = next((item for item in spans if item.transition == transition), None)
+        self._edited((span.start + span.end) / 2 if span is not None else None)
+
+    def remove_transition(self):
+        current = self.selected_transition
+        if current is not None:
+            self.push_undo()
+            timeline = self.project.timeline
+            timeline.transitions = tuple(t for t in timeline.transitions if t is not current)
+            self._edited()
 
     def update_clip(self, clip_id, *, position=None, animate_transform=True, **changes):
         self.push_undo()

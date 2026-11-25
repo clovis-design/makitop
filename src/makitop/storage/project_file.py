@@ -1,10 +1,10 @@
 """Lecture et écriture des fichiers de projet `.makitop` (JSON).
 
-Format (version 11 ; lecture des anciens projets versions 1 à 10 conservée) :
+Format (version 12 ; lecture des anciens projets versions 1 à 11 conservée) :
 
     {
       "format": "makitop",
-      "version": 11,
+      "version": 12,
       "name": "Mon film",
       "canvas_format": "16:9",
       "fps": 30,
@@ -44,10 +44,11 @@ from makitop.model.media import Media, MediaKind
 from makitop.model.project import DEFAULT_TIMELINE_ZOOM, Project, ViewState
 from makitop.model.text import TextStyle
 from makitop.model.timeline import BaseClip, ImageClip, MediaClip, TextClip, Timeline
+from makitop.model.transitions import Transition
 
 EXTENSION = ".makitop"
 FORMAT = "makitop"
-VERSION = 11
+VERSION = 12
 
 
 class ProjectFileError(Exception):
@@ -64,6 +65,7 @@ def save(project: Project, path: Path) -> None:
         "name": project.name,
         "media": [_media_to_dict(m, path.parent) for m in project.media],
         "timeline": [_clip_to_dict(c) for c in project.timeline.clips],
+        "transitions": [asdict(t) for t in project.timeline.transitions],
         "fps": project.timeline.fps,
         "canvas_format": project.canvas_format,
         "view": asdict(project.view),
@@ -116,7 +118,9 @@ def load(path: Path) -> Project:
                 clip.track = order[isinstance(clip, TextClip), clip.track]
         return Project(
             name=str(data.get("name") or path.stem), media=media,
-            timeline=Timeline(clips=clips, fps=fps),
+            timeline=Timeline(clips=clips, fps=fps, transitions=tuple(
+                Transition(**item) for item in data.get("transitions", [])
+            )),
             canvas_format=data.get("canvas_format", "16:9"),
             view=_view_from_dict(data.get("view", {})),
         )

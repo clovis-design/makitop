@@ -26,8 +26,10 @@ uv run makitop
 ## Composer plusieurs médias
 
 Glisser une vidéo ou une photo depuis les médias vers le cadre de prévisualisation.
-Chaque ajout crée une nouvelle piste. Déplacer le calque à la souris, tirer ses
-coins pour le redimensionner, ou activer **Recadrer** pour rogner ses bords.
+Chaque ajout crée une nouvelle piste. Dans le lecteur, les poignées gauche et
+droite règlent la largeur ; celles du haut et du bas règlent la hauteur.
+Les coins conservent les proportions. Activez **Recadrer** pour rogner les
+bords au lieu de redimensionner.
 Le format du cadre (16:9, 9:16, 1:1) se choisit au-dessus de la composition.
 
 Dans **Propriétés → Vidéo → Transformation**, **Rotation** fait pivoter le
@@ -121,6 +123,22 @@ un clip conserve ses clés hors durée pour pouvoir le rallonger ensuite.
 en conservant celle du volume. L'animation est enregistrée dans le projet et appliquée
 à l'identique par les moteurs du lecteur et de l'export ; le volume est interpolé
 échantillon par échantillon.
+
+## Ajouter une transition
+
+Dans la timeline, placez deux vidéos ou images à la suite ou faites-les se
+chevaucher. Sélectionnez le **clip d’arrivée**, puis cliquez sur une vignette
+dans **Transitions**. Le catalogue couvre les préréglages vidéo de
+[FFmpeg `xfade`](https://ffmpeg.org/ffmpeg-filters.html#xfade) : fondus,
+balayages, glissements, iris, diagonales, bandes, zoom et autres effets.
+Les préréglages disponibles dépendent de la version de FFmpeg fournie par PyAV.
+
+Le repère **T** indique la zone dans la timeline. Dans **Propriétés →
+Transition**, modifiez sa durée ou retirez-la. Les clips ne sont pas déplacés :
+sur une coupe, la transition est centrée sur la jonction ; quand les clips se
+chevauchent, elle démarre au début du chevauchement. Sa durée est limitée par
+la place disponible. Le lecteur et l’export utilisent le même rendu, y compris
+le fondu audio lorsque les sources ont du son.
 
 ## Exporter en MP4
 

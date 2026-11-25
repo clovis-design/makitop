@@ -95,7 +95,9 @@ def refresh() -> None:
         return
     project_id = id(_editor.project)
     is_new_project = project_id != _last_project_id
-    set_clips(_editor.project.timeline.clips, _editor.selected_id, _editor.selected_keyframe)
+    model = _editor.project.timeline
+    set_clips(model.clips, _editor.selected_id, _editor.selected_keyframe,
+              model.transition_spans())
     update_undo_redo_buttons(_editor.can_undo, _editor.can_redo)
     if is_new_project:
         _last_project_id = project_id
